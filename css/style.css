@@ -1,0 +1,55 @@
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f8fafc;
+    /* Slate 50 */
+    color: #1e293b;
+    /* Slate 800 */
+    overflow: hidden;
+    /* Prevent scrolling */
+}
+
+#viz-container {
+    width: 100vw;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+}
+
+.ui-layer {
+    position: relative;
+    z-index: 10;
+    pointer-events: none;
+    /* Let clicks pass through to the graph */
+}
+
+.ui-element {
+    pointer-events: auto;
+    /* Re-enable clicks for UI elements */
+}
+
+#tooltip {
+    position: absolute;
+    pointer-events: none;
+    z-index: 50;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+/* Custom Scrollbar for Info Panel */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
