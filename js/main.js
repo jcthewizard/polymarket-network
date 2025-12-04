@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Show Loading
     const container = document.getElementById('viz-container');
-    container.innerHTML = '<div class="flex items-center justify-center h-full text-slate-500">Loading market data...</div>';
+    container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-slate-500"><p>Loading top 100 markets...</p><p class="text-sm mt-2">This may take ~2 minutes due to rate limits.</p></div>';
 
     // 1. Generate Data
     try {

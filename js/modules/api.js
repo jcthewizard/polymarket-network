@@ -107,7 +107,7 @@ async function fetchMarkets() {
             closed: 'false',
             order: 'volume',
             ascending: 'false',
-            limit: '20' // Start with top 20
+            limit: '100' // Increased to 100 as requested
         });
 
         const targetUrl = `${GAMMA_API_URL}?${params}`;
