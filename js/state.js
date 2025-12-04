@@ -9,7 +9,7 @@ export const state = {
     zoom: null,
     selectedNodeId: null,
     filters: {
-        categories: new Set(["Crypto", "Politics", "Science", "Sports", "Business"]),
-        minVolume: 1000
+        categories: new Set(["Crypto", "Politics", "Science", "Sports", "Business", "Other"]), // Added "Other"
+        minVolume: 0 // Start with 0 to see all data
     }
 };

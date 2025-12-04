@@ -1,7 +1,12 @@
 import { state } from '../state.js';
 
 export function initUI(onFilterChange) {
-    const categories = ["Crypto", "Politics", "Science", "Sports", "Business"];
+    // 1. Extract unique categories from data
+    const categories = Array.from(new Set(state.allNodes.map(n => n.category))).sort();
+
+    // 2. Initialize filter state to include all found categories
+    state.filters.categories = new Set(categories);
+
     const container = document.getElementById('category-filters');
     container.innerHTML = '';
 
@@ -19,6 +24,12 @@ export function initUI(onFilterChange) {
     // Volume Filter
     const volSlider = document.getElementById('volume-filter');
     const volDisplay = document.getElementById('vol-display');
+
+    // Set initial value from state
+    volSlider.value = state.filters.minVolume;
+    volDisplay.textContent = state.filters.minVolume >= 1000000
+        ? `$${(state.filters.minVolume / 1000000).toFixed(1)}M`
+        : `$${(state.filters.minVolume / 1000).toFixed(0)}k`;
 
     volSlider.addEventListener('input', (e) => {
         const val = parseInt(e.target.value);
@@ -80,7 +91,7 @@ export function updateInfoPanel(d, state, onMarketClick) {
         <div class="grid grid-cols-2 gap-4 mb-6">
             <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <p class="text-xs text-slate-500">Volume</p>
-                <p class="text-lg font-mono text-blue-600">$${d.volume.toLocaleString()}</p>
+                <p class="text-lg font-mono text-blue-600">${formatVolume(d.volume)}</p>
             </div>
             <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <p class="text-xs text-slate-500">Probability</p>
@@ -138,7 +149,7 @@ export function showTooltip(event, d) {
     title.textContent = d.name;
     category.textContent = d.category;
     prob.textContent = `${(d.probability * 100).toFixed(1)}%`;
-    vol.textContent = `$${d.volume.toLocaleString()}`;
+    vol.textContent = formatVolume(d.volume);
 
     // Update Position
     updateTooltipPosition(event, tooltip);
@@ -188,4 +199,17 @@ export function hideTooltip() {
             }
         }, 200);
     }, 100); // 100ms grace period
+}
+
+function formatVolume(num) {
+    if (num >= 1000000000) {
+        return '$' + (num / 1000000000).toFixed(1) + 'B';
+    }
+    if (num >= 1000000) {
+        return '$' + (num / 1000000).toFixed(1) + 'M';
+    }
+    if (num >= 1000) {
+        return '$' + (num / 1000).toFixed(1) + 'K';
+    }
+    return '$' + num.toFixed(0);
 }

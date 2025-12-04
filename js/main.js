@@ -1,10 +1,10 @@
 import { CONFIG } from './config.js';
 import { state } from './state.js';
-import { generateMockData } from './modules/api.js';
+import { loadData } from './modules/api.js';
 import { initUI, updateFilters, updateInfoPanel } from './modules/ui.js';
 import { initVisualization, resetView, selectNode } from './modules/graph.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log("Main: DOMContentLoaded");
 
     // Check D3
@@ -14,11 +14,21 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("Main: D3 is loaded", d3.version);
     }
 
+    // Show Loading
+    const container = document.getElementById('viz-container');
+    container.innerHTML = '<div class="flex items-center justify-center h-full text-slate-500">Loading market data...</div>';
+
     // 1. Generate Data
-    const data = generateMockData();
-    console.log("Main: Generated Data", data);
-    state.allNodes = data.nodes;
-    state.allLinks = data.links;
+    try {
+        const data = await loadData();
+        console.log("Main: Loaded Data", data);
+        state.allNodes = data.nodes;
+        state.allLinks = data.links;
+    } catch (err) {
+        console.error("Main: Failed to load data", err);
+        container.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Failed to load data. Check console.</div>';
+        return;
+    }
 
     // 2. Define Callbacks
     const onFilterChange = () => {
