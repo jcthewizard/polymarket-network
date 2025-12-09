@@ -17,12 +17,14 @@ export async function loadData() {
     const nodes = [];
 
     // Process in batches to avoid rate limits
-    const BATCH_SIZE = 2; // Reduced to avoid 429s from proxy
-    const DELAY_MS = 2000; // 2 second delay between batches
+    const BATCH_SIZE = 5; // Increased from 2 to 5 to speed up loading
+    const DELAY_MS = 1000; // Reduced delay
+
+    let processedCount = 0;
 
     for (let i = 0; i < markets.length; i += BATCH_SIZE) {
         const batch = markets.slice(i, i + BATCH_SIZE);
-        console.log(`API: Processing batch ${i / BATCH_SIZE + 1}...`);
+        console.log(`API: Processing batch ${Math.floor(i / BATCH_SIZE) + 1}...`);
 
         await Promise.all(batch.map(async (m) => {
             try {
@@ -31,6 +33,15 @@ export async function loadData() {
                 if (history && history.length > 10) { // Ensure enough data points
                     historyMap.set(m.id, history);
 
+                    let prob = history[history.length - 1].p;
+
+                    // Sanitize Probability
+                    if (prob > 1) {
+                        console.warn(`API: Probability > 1 detected for ${m.question}: ${prob}. Assuming percentage and dividing by 100.`);
+                        prob = prob / 100;
+                    }
+                    prob = Math.max(0, Math.min(1, prob)); // Clamp to 0-1
+
                     // Create Node
                     nodes.push({
                         id: m.id,
@@ -38,7 +49,7 @@ export async function loadData() {
                         slug: m.slug,
                         category: m.tags && m.tags.length > 0 ? m.tags[0] : "Other", // Use first tag as category
                         volume: m.volume,
-                        probability: history[history.length - 1].p, // Last price as current probability
+                        probability: prob,
                         clobTokenId: m.clobTokenIds[0],
                         // Visual properties (random start, simulation will fix)
                         x: Math.random() * 800,
@@ -49,6 +60,11 @@ export async function loadData() {
                 console.warn(`API: Failed to fetch history for ${m.question}`, e);
             }
         }));
+
+        processedCount += batch.length;
+        if (window.updateLoadingProgress) {
+            window.updateLoadingProgress(processedCount, markets.length);
+        }
 
         // Delay before next batch (if not last)
         if (i + BATCH_SIZE < markets.length) {

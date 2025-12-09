@@ -35,7 +35,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             # Create a request with a User-Agent to avoid being blocked
             req = urllib.request.Request(
                 target_url, 
-                headers={'User-Agent': 'Mozilla/5.0'}
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
             )
             
             with urllib.request.urlopen(req) as response:

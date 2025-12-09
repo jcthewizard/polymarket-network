@@ -1,6 +1,7 @@
 import { CONFIG } from './config.js?v=3';
 import { state } from './state.js?v=3';
 import { loadData } from './modules/api.js?v=3';
+import { generateMockData } from './modules/mock.js?v=3';
 import { initUI, updateFilters, updateInfoPanel } from './modules/ui.js?v=3';
 import { initVisualization, resetView, selectNode } from './modules/graph.js?v=3';
 
@@ -16,18 +17,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Show Loading
     const container = document.getElementById('viz-container');
-    container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-slate-500"><p>Loading top 100 markets...</p><p class="text-sm mt-2">This may take ~2 minutes due to rate limits.</p></div>';
+    container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-slate-500"><p id="loading-text">Loading top 100 markets...</p><div class="w-64 h-2 bg-slate-200 rounded-full mt-4 overflow-hidden"><div id="loading-bar" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%"></div></div><p class="text-xs mt-2 text-slate-400">Fetching market history...</p></div>';
+
+    // Progress Handler
+    window.updateLoadingProgress = (current, total) => {
+        const percentage = Math.round((current / total) * 100);
+        const bar = document.getElementById('loading-bar');
+        const text = document.getElementById('loading-text');
+        if (bar) bar.style.width = `${percentage}%`;
+        if (text) text.textContent = `Loading markets... ${current}/${total}`;
+    };
 
     // 1. Generate Data
     try {
         const data = await loadData();
+        if (data.nodes.length === 0) throw new Error("No data returned from API");
+
         console.log("Main: Loaded Data", data);
         state.allNodes = data.nodes;
         state.allLinks = data.links;
     } catch (err) {
-        console.error("Main: Failed to load data", err);
-        container.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Failed to load data. Check console.</div>';
-        return;
+        console.warn("Main: Failed to load API data, falling back to mock data.", err);
+        const mockData = generateMockData();
+        state.allNodes = mockData.nodes;
+        state.allLinks = mockData.links;
+
+        // Update loading message to indicate mock data
+        // container.innerHTML = '<div class="flex items-center justify-center h-full text-amber-600">API Failed. Showing Mock Data.</div>';
+        // setTimeout(() => container.innerHTML = '', 2000);
     }
 
     // 2. Define Callbacks

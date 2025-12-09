@@ -35,13 +35,9 @@ try:
         print("\nSample values for 'groupItemTitle':")
         print(set(m.get('groupItemTitle') for m in data[:10]))
         
-        print("\nSample values for 'events.series.slug':")
+        print("\nFirst 5 markets types:")
         for m in data[:5]:
-            if 'events' in m:
-                for e in m['events']:
-                    if 'series' in e:
-                        for s in e['series']:
-                            print(s.get('slug'))
+            print(f"ID: {m.get('id')}, Type: {m.get('marketType')}, Question: {m.get('question')}")
 
 except Exception as e:
     print(f"Error: {e}")
