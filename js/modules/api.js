@@ -143,12 +143,14 @@ async function fetchMarkets() {
     try {
         let allMarkets = [];
         const LIMIT_PER_REQUEST = 500; // Max allowed by API
-        const TARGET_TOTAL = 50;
+        // Fetch more to ensure we get the actual top volume ones after client-side sort
+        const FETCH_LIMIT = 3000;
+        const TARGET_TOTAL = 1000;
         let offset = 0;
 
-        console.log(`API: Fetching ${TARGET_TOTAL} markets in batches...`);
+        console.log(`API: Fetching ${FETCH_LIMIT} markets to find top ${TARGET_TOTAL} by volume...`);
 
-        while (allMarkets.length < TARGET_TOTAL) {
+        while (allMarkets.length < FETCH_LIMIT) {
             const params = new URLSearchParams({
                 active: 'true',
                 closed: 'false',
@@ -179,6 +181,9 @@ async function fetchMarkets() {
                 break;
             }
         }
+
+        // Client-side numerical sort by volume
+        allMarkets.sort((a, b) => (b.volume || 0) - (a.volume || 0));
 
         // Limit to target and process
         return allMarkets.slice(0, TARGET_TOTAL)

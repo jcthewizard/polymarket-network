@@ -1,43 +1,37 @@
-import urllib.request
+import requests
 import json
 
-def analyze_keys(data, prefix=""):
-    keys = set()
-    if isinstance(data, dict):
-        for k, v in data.items():
-            keys.add(f"{prefix}{k}")
-            keys.update(analyze_keys(v, f"{prefix}{k}."))
-    elif isinstance(data, list) and len(data) > 0:
-        # Analyze first few items in list
-        for item in data[:3]:
-            keys.update(analyze_keys(item, prefix))
-    return keys
+GAMMA_API_URL = "https://gamma-api.polymarket.com/markets"
 
-try:
-    url = "http://localhost:8000/api/gamma/markets?active=true&closed=false&order=volume&ascending=false&limit=20"
-    with urllib.request.urlopen(url) as response:
-        data = json.loads(response.read().decode())
+def analyze_markets():
+    params = {
+        "active": "true",
+        "closed": "false",
+        "order": "liquidity",
+        "ascending": "false",
+        "limit": "50",
+        "offset": "0"
+    }
+    
+    print(f"Fetching top 50 markets from {GAMMA_API_URL}...")
+    try:
+        response = requests.get(GAMMA_API_URL, params=params)
+        response.raise_for_status()
+        markets = response.json()
         
-        print(f"Fetched {len(data)} markets.")
+        print(f"Fetched {len(markets)} markets.\n")
         
-        all_keys = analyze_keys(data)
+        print(f"{'ID':<10} | {'Volume':<15} | {'Question':<50}")
+        print("-" * 80)
         
-        print("\nPossible category-related keys:")
-        for k in sorted(all_keys):
-            if any(x in k.lower() for x in ['cat', 'tag', 'type', 'group', 'series', 'slug']):
-                print(k)
-                
-        # Check if any market has 'tags'
-        markets_with_tags = [m for m in data if 'tags' in m]
-        print(f"\nMarkets with 'tags' field: {len(markets_with_tags)}")
-        
-        # Check values for some interesting keys
-        print("\nSample values for 'groupItemTitle':")
-        print(set(m.get('groupItemTitle') for m in data[:10]))
-        
-        print("\nFirst 5 markets types:")
-        for m in data[:5]:
-            print(f"ID: {m.get('id')}, Type: {m.get('marketType')}, Question: {m.get('question')}")
+        for m in markets:
+            vol = m.get('volume', 0)
+            q = m.get('question', 'N/A')
+            mid = m.get('id', 'N/A')
+            print(f"{mid:<10} | {vol:<15} | {q[:48]}")
+            
+    except Exception as e:
+        print(f"Error: {e}")
 
-except Exception as e:
-    print(f"Error: {e}")
+if __name__ == "__main__":
+    analyze_markets()
