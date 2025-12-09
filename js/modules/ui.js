@@ -82,7 +82,9 @@ export function updateInfoPanel(d, state, onMarketClick) {
                 inefficiency: l.inefficiency
             };
         })
-        .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+        .filter(r => Math.abs(r.correlation) > 0.85)
+        .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation))
+        .slice(0, 10);
 
     content.innerHTML = `
         <h2 class="text-xl font-bold text-slate-900 mb-1">${d.name}</h2>
@@ -101,7 +103,7 @@ export function updateInfoPanel(d, state, onMarketClick) {
 
         <h3 class="text-sm font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Correlated Markets (${related.length})</h3>
         <div class="space-y-3">
-            ${related.length === 0 ? '<p class="text-sm text-slate-500">No strong correlations found.</p>' : ''}
+            ${related.length === 0 ? '<p class="text-sm text-slate-500">No closely correlated markets.</p>' : ''}
             ${related.map(r => `
                 <div class="flex items-center justify-between group cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors related-market-item" data-id="${r.id}">
                     <div class="flex-1 min-w-0 mr-2">
