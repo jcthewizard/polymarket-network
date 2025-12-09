@@ -90,6 +90,11 @@ export function updateInfoPanel(d, state, onMarketClick) {
         <h2 class="text-xl font-bold text-slate-900 mb-1">${d.name}</h2>
         <span class="inline-block px-2 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-600 mb-4 border border-slate-200">${d.category}</span>
         
+        <a href="https://polymarket.com/event/${d.slug}" target="_blank" rel="noopener noreferrer" 
+           class="block w-full text-center mb-6 px-4 py-2 bg-white text-slate-700 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm">
+            View on Polymarket ↗
+        </a>
+        
         <div class="grid grid-cols-2 gap-4 mb-6">
             <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <p class="text-xs text-slate-500">Volume</p>

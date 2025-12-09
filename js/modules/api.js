@@ -1,10 +1,9 @@
 import { CONFIG } from '../config.js';
 import { calculateCorrelation } from './math.js';
 
-// Use a CORS proxy to bypass browser restrictions during local development
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
-const GAMMA_API_URL = 'https://gamma-api.polymarket.com/markets';
-const CLOB_API_URL = 'https://clob.polymarket.com/prices-history';
+// Use local proxy provided by server.py
+const GAMMA_API_URL = '/api/gamma/markets';
+const CLOB_API_URL = '/api/clob/prices-history';
 
 export async function loadData() {
     console.log("API: Starting data load...");
@@ -36,6 +35,7 @@ export async function loadData() {
                     nodes.push({
                         id: m.id,
                         name: m.question,
+                        slug: m.slug,
                         category: m.tags && m.tags.length > 0 ? m.tags[0] : "Other", // Use first tag as category
                         volume: m.volume,
                         probability: history[history.length - 1].p, // Last price as current probability
@@ -59,7 +59,9 @@ export async function loadData() {
     console.log(`API: Successfully loaded history for ${nodes.length} markets.`);
 
     // 3. Calculate Correlations & Links
-    const links = [];
+    const candidateLinks = [];
+    const adjacency = new Map(); // Map<NodeId, Link[]>
+
     for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
             const nodeA = nodes[i];
@@ -68,33 +70,54 @@ export async function loadData() {
             const historyA = historyMap.get(nodeA.id);
             const historyB = historyMap.get(nodeB.id);
 
-            // Align data series (simple alignment by index for now, assuming daily interval matches)
-            // In a robust app, we'd align by timestamp.
+            // Align data series
             const minLen = Math.min(historyA.length, historyB.length);
             const seriesA = historyA.slice(-minLen).map(d => d.p);
             const seriesB = historyB.slice(-minLen).map(d => d.p);
 
             const correlation = calculateCorrelation(seriesA, seriesB);
 
-            // Threshold for connection
-            if (Math.abs(correlation) > 0.6) {
+            // Threshold for connection (Stricter: > 0.85)
+            if (Math.abs(correlation) > 0.85) {
                 // Inefficiency Logic (Simplified)
                 let inefficiencyScore = "Low";
                 if (Math.abs(correlation) > 0.8 && Math.abs(nodeA.probability - nodeB.probability) > 0.5) {
                     inefficiencyScore = "High";
                 }
 
-                links.push({
+                const link = {
                     source: nodeA.id,
                     target: nodeB.id,
-                    correlation: correlation, // Store signed correlation
+                    correlation: correlation,
                     rawValue: correlation,
                     isInverse: correlation < 0,
-                    inefficiency: inefficiencyScore
-                });
+                    inefficiency: inefficiencyScore,
+                    keep: false // Will be set to true if it's in top 10 of either node
+                };
+                candidateLinks.push(link);
+
+                // Add to adjacency map
+                if (!adjacency.has(nodeA.id)) adjacency.set(nodeA.id, []);
+                if (!adjacency.has(nodeB.id)) adjacency.set(nodeB.id, []);
+                adjacency.get(nodeA.id).push(link);
+                adjacency.get(nodeB.id).push(link);
             }
         }
     }
+
+    // Filter: Keep only top 10 strongest links for each node
+    for (const [nodeId, links] of adjacency.entries()) {
+        // Sort by absolute correlation strength
+        links.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+
+        // Mark top 10 as kept
+        for (let i = 0; i < Math.min(links.length, 10); i++) {
+            links[i].keep = true;
+        }
+    }
+
+    // Final Links Array
+    const links = candidateLinks.filter(l => l.keep);
 
     console.log(`API: Generated ${links.length} links.`);
     return { nodes, links };
@@ -111,7 +134,7 @@ async function fetchMarkets() {
         });
 
         const targetUrl = `${GAMMA_API_URL}?${params}`;
-        const response = await fetch(`${CORS_PROXY}${encodeURIComponent(targetUrl)}`);
+        const response = await fetch(targetUrl);
         if (!response.ok) throw new Error('Failed to fetch markets');
 
         const data = await response.json();
@@ -150,7 +173,7 @@ async function fetchMarketHistory(clobTokenId) {
         console.log(`API: Fetching history for token: "${clobTokenId}"`);
         console.log(`API: Target URL: ${targetUrl}`);
 
-        const response = await fetch(`${CORS_PROXY}${encodeURIComponent(targetUrl)}`);
+        const response = await fetch(targetUrl);
         if (!response.ok) throw new Error('Failed to fetch history');
 
         const data = await response.json();
