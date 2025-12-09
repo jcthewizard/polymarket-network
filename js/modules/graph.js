@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { showTooltip, hideTooltip, moveTooltip } from './ui.js';
+import { showTooltip, hideTooltip, moveTooltip } from './ui.js?v=3';
 
 export function initVisualization(state, onNodeSelect) {
     console.log("Initializing visualization...");

@@ -1,8 +1,8 @@
-import { CONFIG } from './config.js';
-import { state } from './state.js';
-import { loadData } from './modules/api.js';
-import { initUI, updateFilters, updateInfoPanel } from './modules/ui.js';
-import { initVisualization, resetView, selectNode } from './modules/graph.js';
+import { CONFIG } from './config.js?v=3';
+import { state } from './state.js?v=3';
+import { loadData } from './modules/api.js?v=3';
+import { initUI, updateFilters, updateInfoPanel } from './modules/ui.js?v=3';
+import { initVisualization, resetView, selectNode } from './modules/graph.js?v=3';
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("Main: DOMContentLoaded");
@@ -50,10 +50,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 3. Initialize UI & Visualization
     console.log("Main: Initializing UI");
-    initUI(onFilterChange);
+    initUI(state, onFilterChange);
 
     console.log("Main: Updating Filters");
-    updateFilters(); // Filter initial data
+    updateFilters(state); // Filter initial data
     console.log("Main: Filtered Nodes", state.nodes.length);
     console.log("Main: Filtered Links", state.links.length);
 
@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const newData = generateMockData();
         state.allNodes = newData.nodes;
         state.allLinks = newData.links;
-        updateFilters(); // Re-apply current filters to new data
+        updateFilters(state); // Re-apply current filters to new data
         initVisualization(state, onNodeSelect); // Re-render
     });
 

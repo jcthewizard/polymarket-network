@@ -1,6 +1,7 @@
+import { CONFIG } from '../config.js';
+import { state } from '../state.js';
 
-
-export function initUI(state, onFilterChange) {
+export function initUI(onFilterChange) {
     // 1. Extract unique categories from data
     const categories = Array.from(new Set(state.allNodes.map(n => n.category))).sort();
 
@@ -12,12 +13,17 @@ export function initUI(state, onFilterChange) {
 
     categories.forEach(cat => {
         const btn = document.createElement('button');
-        btn.className = `px-2 py-1 text-xs font-medium rounded-md border transition-colors ${state.filters.categories.has(cat)
-            ? 'bg-slate-800 text-white border-slate-800'
-            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-            }`;
+        const color = CONFIG.colors.categories[cat] || CONFIG.colors.categories["Other"];
+        console.log(`UI: Category "${cat}" Color:`, color);
+
+        // Initial Style (All Selected)
+        btn.className = `px-2 py-1 text-xs font-medium rounded-md border transition-colors`;
+        btn.style.backgroundColor = color;
+        btn.style.borderColor = color;
+        btn.style.color = '#ffffff'; // White text on colored background
+
         btn.textContent = cat;
-        btn.onclick = () => toggleCategory(cat, btn, state, onFilterChange);
+        btn.onclick = () => toggleCategory(cat, btn, onFilterChange);
         container.appendChild(btn);
     });
 
@@ -35,24 +41,49 @@ export function initUI(state, onFilterChange) {
         const val = parseInt(e.target.value);
         state.filters.minVolume = val;
         volDisplay.textContent = val >= 1000000 ? `$${(val / 1000000).toFixed(1)}M` : `$${(val / 1000).toFixed(0)}k`;
-        updateFilters(state);
+        updateFilters();
         if (onFilterChange) onFilterChange();
     });
 }
 
-function toggleCategory(cat, btn, state, onFilterChange) {
-    if (state.filters.categories.has(cat)) {
-        state.filters.categories.delete(cat);
-        btn.className = 'px-2 py-1 text-xs font-medium rounded-md border transition-colors bg-white text-slate-500 border-slate-200 hover:border-slate-300';
+function toggleCategory(cat, btn, onFilterChange) {
+    const allCategories = Array.from(new Set(state.allNodes.map(n => n.category))).sort();
+
+    // Check if we are currently in "Single Select" mode for this category
+    const isSingleSelect = state.filters.categories.size === 1 && state.filters.categories.has(cat);
+
+    if (isSingleSelect) {
+        // Reset to ALL
+        state.filters.categories = new Set(allCategories);
     } else {
-        state.filters.categories.add(cat);
-        btn.className = 'px-2 py-1 text-xs font-medium rounded-md border transition-colors bg-slate-800 text-white border-slate-800';
+        // Switch to SINGLE select
+        state.filters.categories = new Set([cat]);
     }
-    updateFilters(state);
+
+    // Update UI for ALL buttons
+    const container = document.getElementById('category-filters');
+    Array.from(container.children).forEach(b => {
+        const c = b.textContent;
+        const color = CONFIG.colors.categories[c] || CONFIG.colors.categories["Other"];
+
+        if (state.filters.categories.has(c)) {
+            // Selected: Filled
+            b.style.backgroundColor = color;
+            b.style.borderColor = color;
+            b.style.color = '#ffffff';
+        } else {
+            // Unselected: Outlined or Ghost
+            b.style.backgroundColor = '#ffffff';
+            b.style.borderColor = '#e2e8f0'; // Slate 200
+            b.style.color = '#64748b'; // Slate 500
+        }
+    });
+
+    updateFilters();
     if (onFilterChange) onFilterChange();
 }
 
-export function updateFilters(state) {
+export function updateFilters() {
     // Filter Nodes
     state.nodes = state.allNodes.filter(n =>
         state.filters.categories.has(n.category) &&
