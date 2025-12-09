@@ -43,10 +43,14 @@ export function initVisualization(state, onNodeSelect) {
 
     // --- Simulation Setup ---
     state.simulation = d3.forceSimulation(state.nodes)
-        .force("link", d3.forceLink(state.links).id(d => d.id).distance(d => 100 + (1 - d.correlation) * 200)) // Stronger correlation = shorter distance
-        .force("charge", d3.forceManyBody().strength(-300)) // Repulsion
-        .force("center", d3.forceCenter(CONFIG.width / 2, CONFIG.height / 2))
-        .force("collide", d3.forceCollide().radius(d => (5 + Math.sqrt(d.volume / 1000)) + 5).iterations(2));
+        .force("link", d3.forceLink(state.links)
+            .id(d => d.id)
+            .distance(d => 150 + (1 - d.correlation) * 300) // Increased base distance
+        )
+        .force("charge", d3.forceManyBody().strength(-1000)) // Much stronger repulsion to prevent squishing
+        .force("x", d3.forceX(CONFIG.width / 2).strength(0.05)) // Gentle gravity X
+        .force("y", d3.forceY(CONFIG.height / 2).strength(0.05)) // Gentle gravity Y
+        .force("collide", d3.forceCollide().radius(d => (5 + Math.sqrt(d.volume / 1000)) + 8).iterations(2)); // More breathing room
 
     // --- Rendering ---
 

@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Show Loading
     const container = document.getElementById('viz-container');
-    container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-slate-500"><p id="loading-text">Loading top 100 markets...</p><div class="w-64 h-2 bg-slate-200 rounded-full mt-4 overflow-hidden"><div id="loading-bar" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%"></div></div><p class="text-xs mt-2 text-slate-400">Fetching market history...</p></div>';
+    container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-slate-500"><p id="loading-text">Loading top 1000 markets...</p><div class="w-64 h-2 bg-slate-200 rounded-full mt-4 overflow-hidden"><div id="loading-bar" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%"></div></div><p class="text-xs mt-2 text-slate-400">Fetching market history...</p></div>';
 
     // Progress Handler
     window.updateLoadingProgress = (current, total) => {
@@ -101,8 +101,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.svg.attr("viewBox", [0, 0, CONFIG.width, CONFIG.height]);
         }
         if (state.simulation) {
-            state.simulation.force("center", d3.forceCenter(CONFIG.width / 2, CONFIG.height / 2));
-            state.simulation.alpha(1).restart();
+            // Update gentle gravity centers
+            state.simulation.force("x", d3.forceX(CONFIG.width / 2).strength(0.05));
+            state.simulation.force("y", d3.forceY(CONFIG.height / 2).strength(0.05));
+            state.simulation.alpha(0.3).restart();
         }
     });
 });

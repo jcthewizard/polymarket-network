@@ -17,8 +17,8 @@ export async function loadData() {
     const nodes = [];
 
     // Process in batches to avoid rate limits
-    const BATCH_SIZE = 5; // Increased from 2 to 5 to speed up loading
-    const DELAY_MS = 1000; // Reduced delay
+    const BATCH_SIZE = 10; // Reduced to 5 to stay safely within 100 req/10s limit
+    const DELAY_MS = 50; // Reduced delay
 
     let processedCount = 0;
 
@@ -141,22 +141,47 @@ export async function loadData() {
 
 async function fetchMarkets() {
     try {
-        const params = new URLSearchParams({
-            active: 'true',
-            closed: 'false',
-            order: 'volume',
-            ascending: 'false',
-            limit: '100' // Increased to 100 as requested
-        });
+        let allMarkets = [];
+        const LIMIT_PER_REQUEST = 500; // Max allowed by API
+        const TARGET_TOTAL = 50;
+        let offset = 0;
 
-        const targetUrl = `${GAMMA_API_URL}?${params}`;
-        const response = await fetch(targetUrl);
-        if (!response.ok) throw new Error('Failed to fetch markets');
+        console.log(`API: Fetching ${TARGET_TOTAL} markets in batches...`);
 
-        const data = await response.json();
-        // console.log("API: Raw markets data sample:", data[0]);
+        while (allMarkets.length < TARGET_TOTAL) {
+            const params = new URLSearchParams({
+                active: 'true',
+                closed: 'false',
+                order: 'volume',
+                ascending: 'false',
+                limit: LIMIT_PER_REQUEST.toString(),
+                offset: offset.toString()
+            });
 
-        return data
+            const targetUrl = `${GAMMA_API_URL}?${params}`;
+            const response = await fetch(targetUrl);
+            if (!response.ok) throw new Error('Failed to fetch markets');
+
+            const data = await response.json();
+
+            if (!data || data.length === 0) {
+                console.log("API: No more markets returned.");
+                break;
+            }
+
+            allMarkets = allMarkets.concat(data);
+            offset += data.length;
+
+            console.log(`API: Fetched batch of ${data.length} markets. Total raw: ${allMarkets.length}`);
+
+            if (data.length < LIMIT_PER_REQUEST) {
+                console.log("API: Reached end of market list.");
+                break;
+            }
+        }
+
+        // Limit to target and process
+        return allMarkets.slice(0, TARGET_TOTAL)
             .filter(m => m.clobTokenIds) // Filter out missing IDs
             .map(m => {
                 // Parse clobTokenIds if it's a string
