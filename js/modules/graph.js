@@ -58,7 +58,7 @@ export function initVisualization(state, onNodeSelect) {
     // Use sqrt scale for better visual differentiation
     const radiusScale = d3.scaleSqrt()
         .domain([minVol, maxVol])
-        .range([8, 55]);
+        .range([15, 70]);
 
     const getNodeRadius = (d) => radiusScale(d.volume);
 

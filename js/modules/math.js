@@ -11,7 +11,10 @@ export function calculateCorrelation(x, y) {
     const numerator = n * sumXY - sumX * sumY;
     const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
 
-    return denominator === 0 ? 0 : numerator / denominator;
+    if (denominator === 0) return 0;
+    const correlation = numerator / denominator;
+    // Clamp to valid range (floating point can occasionally exceed bounds)
+    return Math.max(-1, Math.min(1, correlation));
 }
 
 export function generateRandomWalk(steps, startValue = 0.5, volatility = 0.05) {
