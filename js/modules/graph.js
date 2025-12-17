@@ -50,15 +50,17 @@ export function initVisualization(state, onNodeSelect) {
         .domain(categories)
         .range(d3.schemeTableau10);
 
-    // Helper function for node radius (log-based to reduce variance)
-    const getNodeRadius = (d) => {
-        // Use log scale: base size + log10(volume) * factor
-        // Clamped to a reasonable range
-        const minRadius = 6;
-        const maxRadius = 35;
-        const logSize = minRadius + Math.log10(Math.max(d.volume, 1000)) * 4;
-        return Math.min(maxRadius, Math.max(minRadius, logSize));
-    };
+    // --- Build relative size scale based on actual data volumes ---
+    const volumes = state.nodes.map(n => n.volume);
+    const minVol = Math.min(...volumes);
+    const maxVol = Math.max(...volumes);
+
+    // Use sqrt scale for better visual differentiation
+    const radiusScale = d3.scaleSqrt()
+        .domain([minVol, maxVol])
+        .range([8, 55]);
+
+    const getNodeRadius = (d) => radiusScale(d.volume);
 
     // --- Simulation Setup (more stable, less jittery) ---
     state.simulation = d3.forceSimulation(state.nodes)
@@ -222,5 +224,7 @@ export function resetView(state) {
         .call(state.zoom.transform, d3.zoomIdentity);
 
     // Hide Panel
-    document.getElementById('info-panel').classList.add('translate-x-full');
+    const panel = document.getElementById('info-panel');
+    panel.classList.add('translate-x-full');
+    setTimeout(() => panel.classList.add('hidden'), 300);
 }

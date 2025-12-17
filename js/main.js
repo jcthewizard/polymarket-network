@@ -62,7 +62,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 selectNode(targetNode, state, onNodeSelect);
             }
         });
-        document.getElementById('info-panel').classList.remove('translate-x-full');
+        const panel = document.getElementById('info-panel');
+        panel.classList.remove('hidden');
+        panel.classList.remove('translate-x-full');
     };
 
     // 3. Initialize UI & Visualization
@@ -81,7 +83,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('reset-view-btn').addEventListener('click', () => resetView(state));
 
     document.getElementById('close-panel-btn').addEventListener('click', () => {
-        document.getElementById('info-panel').classList.add('translate-x-full');
+        const panel = document.getElementById('info-panel');
+        panel.classList.add('translate-x-full');
+        // Hide after transition
+        setTimeout(() => panel.classList.add('hidden'), 300);
     });
 
     document.getElementById('refresh-data-btn').addEventListener('click', () => {
