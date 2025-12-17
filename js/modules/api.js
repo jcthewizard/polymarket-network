@@ -185,8 +185,27 @@ async function fetchMarkets() {
         // Client-side numerical sort by volume
         allMarkets.sort((a, b) => (b.volume || 0) - (a.volume || 0));
 
+        // Filter for "Relevant" markets: Volume > 100k AND 5% < prob < 95%
+        const relevantMarkets = allMarkets.filter(m => {
+            // Volume Filter
+            if (!m.volume || m.volume < 100000) return false;
+
+            try {
+                if (!m.outcomePrices) return false;
+                // outcomePrices is a JSON string like '["0.48", "0.52"]'
+                const prices = JSON.parse(m.outcomePrices);
+                const prob = parseFloat(prices[0]); // Assuming first outcome (usually YES)
+                return prob >= 0.05 && prob <= 0.95;
+            } catch (e) {
+                console.warn("API: Failed to parse outcomePrices for filter", m.id);
+                return false;
+            }
+        });
+
+        console.log(`API: Filtered ${allMarkets.length} markets down to ${relevantMarkets.length} relevant ones (Vol > 100k, 5% < p < 95%).`);
+
         // Limit to target and process
-        return allMarkets.slice(0, TARGET_TOTAL)
+        return relevantMarkets.slice(0, TARGET_TOTAL)
             .filter(m => m.clobTokenIds) // Filter out missing IDs
             .map(m => {
                 // Parse clobTokenIds if it's a string

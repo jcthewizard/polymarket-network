@@ -19,12 +19,11 @@ def analyze_markets():
         response.raise_for_status()
         markets = response.json()
         
-        print(f"Fetched {len(markets)} markets.\n")
-        
-        print(f"{'ID':<10} | {'Volume':<15} | {'Question':<50}")
-        print("-" * 80)
-        
-        for m in markets:
+        if markets:
+            print("Sample Market Data:")
+            print(json.dumps(markets[0], indent=2))
+            
+        for m in markets[:5]:
             vol = m.get('volume', 0)
             q = m.get('question', 'N/A')
             mid = m.get('id', 'N/A')

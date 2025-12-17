@@ -1,8 +1,16 @@
 
 
+// Dynamic category color scale (matches graph.js)
+let categoryColorScale = null;
+
 export function initUI(state, onFilterChange) {
     // 1. Extract unique categories from data
     const categories = Array.from(new Set(state.allNodes.map(n => n.category))).sort();
+
+    // Build color scale
+    categoryColorScale = d3.scaleOrdinal()
+        .domain(categories)
+        .range(d3.schemeTableau10);
 
     // 2. Initialize filter state to include all found categories
     state.filters.categories = new Set(categories);
@@ -12,11 +20,22 @@ export function initUI(state, onFilterChange) {
 
     categories.forEach(cat => {
         const btn = document.createElement('button');
-        btn.className = `px-2 py-1 text-xs font-medium rounded-md border transition-colors ${state.filters.categories.has(cat)
+        const color = categoryColorScale(cat);
+        const isActive = state.filters.categories.has(cat);
+
+        btn.className = `flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md border transition-colors ${isActive
             ? 'bg-slate-800 text-white border-slate-800'
             : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
             }`;
-        btn.textContent = cat;
+
+        // Create color dot
+        const dot = document.createElement('span');
+        dot.className = 'w-2.5 h-2.5 rounded-full flex-shrink-0';
+        dot.style.backgroundColor = color;
+
+        btn.appendChild(dot);
+        btn.appendChild(document.createTextNode(cat));
+
         btn.onclick = () => toggleCategory(cat, btn, state, onFilterChange);
         container.appendChild(btn);
     });
@@ -41,12 +60,13 @@ export function initUI(state, onFilterChange) {
 }
 
 function toggleCategory(cat, btn, state, onFilterChange) {
-    if (state.filters.categories.has(cat)) {
+    const isActive = state.filters.categories.has(cat);
+    if (isActive) {
         state.filters.categories.delete(cat);
-        btn.className = 'px-2 py-1 text-xs font-medium rounded-md border transition-colors bg-white text-slate-500 border-slate-200 hover:border-slate-300';
+        btn.className = 'flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md border transition-colors bg-white text-slate-500 border-slate-200 hover:border-slate-300';
     } else {
         state.filters.categories.add(cat);
-        btn.className = 'px-2 py-1 text-xs font-medium rounded-md border transition-colors bg-slate-800 text-white border-slate-800';
+        btn.className = 'flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md border transition-colors bg-slate-800 text-white border-slate-800';
     }
     updateFilters(state);
     if (onFilterChange) onFilterChange();

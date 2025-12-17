@@ -1,6 +1,9 @@
 import { CONFIG } from '../config.js';
 import { showTooltip, hideTooltip, moveTooltip } from './ui.js?v=3';
 
+// Dynamic category color scale (will be populated on init)
+let categoryColorScale = null;
+
 export function initVisualization(state, onNodeSelect) {
     console.log("Initializing visualization...");
     const container = document.getElementById('viz-container');
@@ -41,16 +44,33 @@ export function initVisualization(state, onNodeSelect) {
         });
     state.svg.call(state.zoom);
 
-    // --- Simulation Setup ---
+    // --- Build dynamic category color scale ---
+    const categories = Array.from(new Set(state.nodes.map(n => n.category))).sort();
+    categoryColorScale = d3.scaleOrdinal()
+        .domain(categories)
+        .range(d3.schemeTableau10);
+
+    // Helper function for node radius (log-based to reduce variance)
+    const getNodeRadius = (d) => {
+        // Use log scale: base size + log10(volume) * factor
+        // Clamped to a reasonable range
+        const minRadius = 6;
+        const maxRadius = 35;
+        const logSize = minRadius + Math.log10(Math.max(d.volume, 1000)) * 4;
+        return Math.min(maxRadius, Math.max(minRadius, logSize));
+    };
+
+    // --- Simulation Setup (more stable, less jittery) ---
     state.simulation = d3.forceSimulation(state.nodes)
+        .velocityDecay(0.6) // Higher decay = faster settling, less jitter
         .force("link", d3.forceLink(state.links)
             .id(d => d.id)
-            .distance(d => 150 + (1 - d.correlation) * 300) // Increased base distance
+            .distance(d => 120 + (1 - Math.abs(d.correlation)) * 200)
         )
-        .force("charge", d3.forceManyBody().strength(-1000)) // Much stronger repulsion to prevent squishing
-        .force("x", d3.forceX(CONFIG.width / 2).strength(0.05)) // Gentle gravity X
-        .force("y", d3.forceY(CONFIG.height / 2).strength(0.05)) // Gentle gravity Y
-        .force("collide", d3.forceCollide().radius(d => (5 + Math.sqrt(d.volume / 1000)) + 8).iterations(2)); // More breathing room
+        .force("charge", d3.forceManyBody().strength(-600)) // Moderate repulsion
+        .force("x", d3.forceX(CONFIG.width / 2).strength(0.03)) // Gentle gravity X
+        .force("y", d3.forceY(CONFIG.height / 2).strength(0.03)) // Gentle gravity Y
+        .force("collide", d3.forceCollide().radius(d => getNodeRadius(d) + 5).iterations(3))
 
     // --- Rendering ---
 
@@ -68,6 +88,7 @@ export function initVisualization(state, onNodeSelect) {
             return CONFIG.colors.linkDefault; // Medium or Neutral
         });
 
+
     // 2. Nodes (Bubbles)
     const node = g.append("g")
         .attr("stroke", "#fff")
@@ -76,14 +97,8 @@ export function initVisualization(state, onNodeSelect) {
         .selectAll("circle")
         .data(state.nodes)
         .join("circle")
-        .attr("r", d => 5 + Math.sqrt(d.volume / 1000)) // Size based on volume
-        .attr("fill", d => {
-            // Simple category color mapping - using slightly more pastel/modern colors
-            const colorScale = d3.scaleOrdinal()
-                .domain(["Crypto", "Politics", "Science", "Sports", "Business"])
-                .range(["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6"]);
-            return colorScale(d.category);
-        })
+        .attr("r", d => getNodeRadius(d)) // Log-based sizing
+        .attr("fill", d => categoryColorScale(d.category)) // Dynamic category colors
         .call(drag(state.simulation));
 
     // Add basic tooltips (title attribute)
