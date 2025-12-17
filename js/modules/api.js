@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { calculateCorrelation } from './math.js';
+import { calculateCorrelation, calculateLogReturns, alignByTimestamp } from './math.js';
 
 // Use local proxy provided by server.py
 const GAMMA_API_URL = '/api/gamma/markets';
@@ -86,18 +86,28 @@ export async function loadData() {
             const historyA = historyMap.get(nodeA.id);
             const historyB = historyMap.get(nodeB.id);
 
-            // Align data series
-            const minLen = Math.min(historyA.length, historyB.length);
-            const seriesA = historyA.slice(-minLen).map(d => d.p);
-            const seriesB = historyB.slice(-minLen).map(d => d.p);
+            // Align data series by timestamp (only use matching time points)
+            const { pricesA, pricesB } = alignByTimestamp(historyA, historyB);
 
-            const correlation = calculateCorrelation(seriesA, seriesB);
+            // Need at least 10 aligned data points
+            if (pricesA.length < 10) continue;
 
-            // Threshold for connection (Stricter: > 0.85)
-            if (Math.abs(correlation) > 0.85) {
+            // Calculate log returns (captures price *changes*, not levels)
+            const returnsA = calculateLogReturns(pricesA);
+            const returnsB = calculateLogReturns(pricesB);
+
+            // Need at least 9 returns (from 10 prices)
+            if (returnsA.length < 9) continue;
+
+            // Correlate returns, not prices
+            const correlation = calculateCorrelation(returnsA, returnsB);
+
+            // Threshold for connection (Lower for returns: > 0.5)
+            // Returns correlations are naturally lower than price correlations
+            if (Math.abs(correlation) > 0.5) {
                 // Inefficiency Logic (Simplified)
                 let inefficiencyScore = "Low";
-                if (Math.abs(correlation) > 0.8 && Math.abs(nodeA.probability - nodeB.probability) > 0.5) {
+                if (Math.abs(correlation) > 0.6 && Math.abs(nodeA.probability - nodeB.probability) > 0.3) {
                     inefficiencyScore = "High";
                 }
 
@@ -143,14 +153,13 @@ async function fetchMarkets() {
     try {
         let allMarkets = [];
         const LIMIT_PER_REQUEST = 500; // Max allowed by API
-        // Fetch more to ensure we get the actual top volume ones after client-side sort
-        const FETCH_LIMIT = 3000;
-        const TARGET_TOTAL = 1000;
+        const TARGET_TOTAL = 1000; // Max markets to process after filtering
         let offset = 0;
 
-        console.log(`API: Fetching ${FETCH_LIMIT} markets to find top ${TARGET_TOTAL} by volume...`);
+        console.log(`API: Fetching ALL markets from API...`);
 
-        while (allMarkets.length < FETCH_LIMIT) {
+        // Keep fetching until API returns no more results
+        while (true) {
             const params = new URLSearchParams({
                 active: 'true',
                 closed: 'false',
@@ -231,7 +240,7 @@ async function fetchMarketHistory(clobTokenId) {
     try {
         const params = new URLSearchParams({
             market: clobTokenId,
-            interval: '1d' // Daily candles
+            interval: 'max' // Get all available history
         });
 
         const targetUrl = `${CLOB_API_URL}?${params}`;

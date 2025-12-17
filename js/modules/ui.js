@@ -102,7 +102,7 @@ export function updateInfoPanel(d, state, onMarketClick) {
                 inefficiency: l.inefficiency
             };
         })
-        .filter(r => Math.abs(r.correlation) > 0.85)
+        .filter(r => Math.abs(r.correlation) > 0.5)
         .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation))
         .slice(0, 10);
 

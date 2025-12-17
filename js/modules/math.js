@@ -17,6 +17,57 @@ export function calculateCorrelation(x, y) {
     return Math.max(-1, Math.min(1, correlation));
 }
 
+/**
+ * Calculate log returns from a price series.
+ * Log returns: ln(p[i] / p[i-1])
+ * This is preferred for correlation analysis because:
+ * - It captures *when* prices move, not just *where* they are
+ * - More robust to different price levels
+ * - Standard in finance
+ * @param {number[]} prices - Array of prices
+ * @returns {number[]} - Array of log returns (length = prices.length - 1)
+ */
+export function calculateLogReturns(prices) {
+    if (prices.length < 2) return [];
+
+    const returns = [];
+    for (let i = 1; i < prices.length; i++) {
+        // Avoid log(0) by using a small minimum
+        const prevPrice = Math.max(prices[i - 1], 0.001);
+        const currPrice = Math.max(prices[i], 0.001);
+        returns.push(Math.log(currPrice / prevPrice));
+    }
+    return returns;
+}
+
+/**
+ * Align two price history arrays by timestamp.
+ * Only returns data points where both series have values.
+ * @param {Array<{t: number, p: number}>} historyA 
+ * @param {Array<{t: number, p: number}>} historyB 
+ * @returns {{pricesA: number[], pricesB: number[]}}
+ */
+export function alignByTimestamp(historyA, historyB) {
+    // Create a map of timestamp -> price for series B
+    const mapB = new Map();
+    for (const point of historyB) {
+        mapB.set(point.t, point.p);
+    }
+
+    // Find matching timestamps
+    const pricesA = [];
+    const pricesB = [];
+
+    for (const point of historyA) {
+        if (mapB.has(point.t)) {
+            pricesA.push(point.p);
+            pricesB.push(mapB.get(point.t));
+        }
+    }
+
+    return { pricesA, pricesB };
+}
+
 export function generateRandomWalk(steps, startValue = 0.5, volatility = 0.05) {
     const history = [];
     let currentValue = startValue;
