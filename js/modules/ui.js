@@ -92,13 +92,26 @@ export function updateInfoPanel(d, state, onMarketClick) {
 
     // Find related markets
     const related = state.links
-        .filter(l => l.source.id === d.id || l.target.id === d.id)
+        .filter(l => {
+            // Handle both string IDs and object references
+            const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+            const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+            return sourceId === d.id || targetId === d.id;
+        })
         .map(l => {
-            const other = l.source.id === d.id ? l.target : l.source;
+            const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+            const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+            const otherId = sourceId === d.id ? targetId : sourceId;
+
+            // Find the other node's name
+            const otherNode = typeof l.source === 'object'
+                ? (sourceId === d.id ? l.target : l.source)
+                : state.nodes.find(n => n.id === otherId);
+
             return {
-                id: other.id,
-                name: other.name,
-                correlation: l.rawValue, // Use raw value for display
+                id: otherId,
+                name: otherNode?.name || otherId,
+                correlation: l.correlation,  // Use correlation (not rawValue)
                 inefficiency: l.inefficiency
             };
         })

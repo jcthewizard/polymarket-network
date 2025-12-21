@@ -34,10 +34,12 @@
                     class="bg-white hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 shadow-sm hover:shadow-md">
                     Reset View
                 </button>
-                <button id="refresh-data-btn"
-                    class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-md shadow-blue-500/20">
-                    Refresh Data
-                </button>
+                <div id="sync-status"
+                    class="flex items-center gap-2 bg-white/90 px-3 py-2 rounded-lg border border-slate-200 shadow-sm">
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    <span class="text-xs text-slate-500">Synced <span id="last-sync-time"
+                            class="font-medium text-slate-700">--</span></span>
+                </div>
             </div>
         </header>
 

@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js?v=3';
 import { state } from './state.js?v=3';
-import { loadData } from './modules/api.js?v=3';
+import { loadData, getDataStatus } from './modules/api.js?v=3';
 import { generateMockData } from './modules/mock.js?v=3';
 import { initUI, updateFilters, updateInfoPanel } from './modules/ui.js?v=3';
 import { initVisualization, resetView, selectNode } from './modules/graph.js?v=3';
@@ -17,18 +17,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Show Loading
     const container = document.getElementById('viz-container');
-    container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-slate-500"><p id="loading-text">Filtering markets by volume & probability...</p><div class="w-64 h-2 bg-slate-200 rounded-full mt-4 overflow-hidden"><div id="loading-bar" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%"></div></div><p class="text-xs mt-2 text-slate-400">Fetching price history...</p></div>';
+    container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-slate-500"><p id="loading-text">Loading market data...</p><div class="animate-pulse mt-4"><div class="w-48 h-2 bg-blue-200 rounded-full"></div></div></div>';
 
-    // Progress Handler
-    window.updateLoadingProgress = (current, total) => {
-        const percentage = Math.round((current / total) * 100);
-        const bar = document.getElementById('loading-bar');
-        const text = document.getElementById('loading-text');
-        if (bar) bar.style.width = `${percentage}%`;
-        if (text) text.textContent = `Loading markets... ${current}/${total}`;
-    };
-
-    // 1. Generate Data
+    // 1. Load Data from server cache
     try {
         const data = await loadData();
         if (data.nodes.length === 0) throw new Error("No data returned from API");
@@ -36,16 +27,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("Main: Loaded Data", data);
         state.allNodes = data.nodes;
         state.allLinks = data.links;
-        state.historyMap = data.historyMap; // Store for chart access
+        state.historyMap = data.historyMap;
     } catch (err) {
         console.warn("Main: Failed to load API data, falling back to mock data.", err);
+
+        // Show a more helpful message
+        container.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-amber-600">
+            <p class="text-lg font-semibold">Loading cached data...</p>
+            <p class="text-sm mt-2">Server may still be refreshing. Using mock data for now.</p>
+        </div>`;
+
+        await new Promise(r => setTimeout(r, 1000));
+
         const mockData = generateMockData();
         state.allNodes = mockData.nodes;
         state.allLinks = mockData.links;
-
-        // Update loading message to indicate mock data
-        // container.innerHTML = '<div class="flex items-center justify-center h-full text-amber-600">API Failed. Showing Mock Data.</div>';
-        // setTimeout(() => container.innerHTML = '', 2000);
+        state.historyMap = null;
     }
 
     // 2. Define Callbacks
@@ -73,12 +70,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     initUI(state, onFilterChange);
 
     console.log("Main: Updating Filters");
-    updateFilters(state); // Filter initial data
+    updateFilters(state);
     console.log("Main: Filtered Nodes", state.nodes.length);
     console.log("Main: Filtered Links", state.links.length);
 
     console.log("Main: Initializing Visualization");
-    initVisualization(state, onNodeSelect, state.historyMap); // Initial render
+    initVisualization(state, onNodeSelect, state.historyMap);
 
     // 4. Global Event Listeners
     document.getElementById('reset-view-btn').addEventListener('click', () => resetView(state));
@@ -86,18 +83,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('close-panel-btn').addEventListener('click', () => {
         const panel = document.getElementById('info-panel');
         panel.classList.add('translate-x-full');
-        // Hide after transition
         setTimeout(() => panel.classList.add('hidden'), 300);
     });
 
-    document.getElementById('refresh-data-btn').addEventListener('click', () => {
-        const newData = generateMockData();
-        state.allNodes = newData.nodes;
-        state.allLinks = newData.links;
-        state.historyMap = null; // Mock data has no history
-        updateFilters(state); // Re-apply current filters to new data
-        initVisualization(state, onNodeSelect, state.historyMap); // Re-render
-    });
+    // Update sync status display
+    async function updateSyncStatus() {
+        try {
+            const status = await getDataStatus();
+            const syncTimeEl = document.getElementById('last-sync-time');
+
+            if (status.last_refresh) {
+                const lastRefresh = new Date(status.last_refresh);
+                const now = new Date();
+                const diffMs = now - lastRefresh;
+                const diffMins = Math.floor(diffMs / 60000);
+
+                if (diffMins < 1) {
+                    syncTimeEl.textContent = 'just now';
+                } else if (diffMins < 60) {
+                    syncTimeEl.textContent = `${diffMins}m ago`;
+                } else {
+                    const diffHours = Math.floor(diffMins / 60);
+                    syncTimeEl.textContent = `${diffHours}h ago`;
+                }
+            } else {
+                syncTimeEl.textContent = 'pending...';
+            }
+        } catch (err) {
+            console.error('Failed to get sync status:', err);
+        }
+    }
+
+    // Update immediately and then every 30 seconds
+    updateSyncStatus();
+    setInterval(updateSyncStatus, 30000);
 
     // Resize handler
     window.addEventListener('resize', () => {
