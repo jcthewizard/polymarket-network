@@ -1,11 +1,21 @@
 import { CONFIG } from '../config.js';
 import { showTooltip, hideTooltip, moveTooltip } from './ui.js?v=3';
+import { showCorrelationChart } from './chart.js';
 
 // Dynamic category color scale (will be populated on init)
 let categoryColorScale = null;
 
-export function initVisualization(state, onNodeSelect) {
+// Store historyMap reference for link clicks
+let globalHistoryMap = null;
+
+export function initVisualization(state, onNodeSelect, historyMap = null) {
     console.log("Initializing visualization...");
+
+    // Store historyMap for link click access
+    if (historyMap) {
+        globalHistoryMap = historyMap;
+    }
+
     const container = document.getElementById('viz-container');
     container.innerHTML = ''; // Clear previous if any
 
@@ -77,18 +87,33 @@ export function initVisualization(state, onNodeSelect) {
     // --- Rendering ---
 
     // 1. Links (Edges)
-    const link = g.append("g")
-        .attr("stroke-opacity", 0.6)
-        .selectAll("line")
+    const linkGroup = g.append("g");
+
+    // Invisible wider hit areas for easier clicking
+    const linkHitArea = linkGroup.selectAll("line.hit-area")
         .data(state.links)
         .join("line")
-        .attr("stroke-width", d => Math.max(0.5, d.correlation * 2)) // THINNER LINES
+        .attr("class", "hit-area")
+        .attr("stroke-width", 15) // Wide for easy clicking
+        .attr("stroke", "transparent")
+        .style('cursor', 'pointer')
+        .on('click', (event, d) => handleLinkClick(event, d));
+
+    // Visible links
+    const link = linkGroup.selectAll("line.visible")
+        .data(state.links)
+        .join("line")
+        .attr("class", "visible")
+        .attr("stroke-opacity", 0.6)
+        .attr("stroke-width", d => Math.max(0.5, d.correlation * 2))
         .attr("stroke", d => {
             if (d.inefficiency === "High") return CONFIG.colors.linkHighInefficiency;
             if (d.inefficiency === "Low") return CONFIG.colors.linkLowInefficiency;
             if (d.isInverse) return CONFIG.colors.linkInverse;
-            return CONFIG.colors.linkDefault; // Medium or Neutral
-        });
+            return CONFIG.colors.linkDefault;
+        })
+        .style('cursor', 'pointer')
+        .style('pointer-events', 'none'); // Let hit area handle clicks
 
 
     // 2. Nodes (Bubbles)
@@ -109,6 +134,14 @@ export function initVisualization(state, onNodeSelect) {
 
     // --- Simulation Tick ---
     state.simulation.on("tick", () => {
+        // Update hit areas
+        linkHitArea
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        // Update visible links
         link
             .attr("x1", d => d.source.x)
             .attr("y1", d => d.source.y)
@@ -165,6 +198,30 @@ function drag(simulation) {
 function handleNodeClick(event, d, state, onNodeSelect) {
     event.stopPropagation(); // Prevent background click
     selectNode(d, state, onNodeSelect);
+}
+
+function handleLinkClick(event, linkData) {
+    event.stopPropagation();
+
+    if (!globalHistoryMap) {
+        console.warn('Graph: No historyMap available for chart');
+        return;
+    }
+
+    // Get source and target IDs (may be objects or strings depending on D3 state)
+    const sourceId = typeof linkData.source === 'object' ? linkData.source.id : linkData.source;
+    const targetId = typeof linkData.target === 'object' ? linkData.target.id : linkData.target;
+
+    const historyA = globalHistoryMap.get(sourceId);
+    const historyB = globalHistoryMap.get(targetId);
+
+    if (!historyA || !historyB) {
+        console.warn('Graph: Missing history data for one or both markets', sourceId, targetId);
+        return;
+    }
+
+    console.log('Graph: Opening correlation chart for', linkData.source.name, '↔', linkData.target.name);
+    showCorrelationChart(linkData, historyA, historyB);
 }
 
 export function selectNode(d, state, onNodeSelect) {

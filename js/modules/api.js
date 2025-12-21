@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { calculateCorrelation, calculateLogReturns, alignByTimestamp } from './math.js';
+import { calculateCorrelation, calculateLogReturns, alignByTimestamp, calculateVariance } from './math.js';
 
 // Use local proxy provided by server.py
 const GAMMA_API_URL = '/api/gamma/markets';
@@ -42,12 +42,12 @@ export async function loadData() {
                     }
                     prob = Math.max(0, Math.min(1, prob)); // Clamp to 0-1
 
-                    // Create Node
+                    // Create Node - category will be filled in by LLM classification
                     nodes.push({
                         id: m.id,
                         name: m.question,
                         slug: m.slug,
-                        category: m.tags && m.tags.length > 0 ? m.tags[0] : "Other", // Use first tag as category
+                        category: 'Other', // Placeholder, will be updated by LLM
                         volume: m.volume,
                         probability: prob,
                         clobTokenId: m.clobTokenIds[0],
@@ -74,6 +74,9 @@ export async function loadData() {
 
     console.log(`API: Successfully loaded history for ${nodes.length} markets.`);
 
+    // 2.5 Classify markets using LLM (with caching)
+    await classifyNodesWithLLM(nodes);
+
     // 3. Calculate Correlations & Links
     const candidateLinks = [];
     const adjacency = new Map(); // Map<NodeId, Link[]>
@@ -98,6 +101,17 @@ export async function loadData() {
 
             // Need at least 9 returns (from 10 prices)
             if (returnsA.length < 9) continue;
+
+            // *** STAGNANT MARKET FILTER ***
+            // Skip if either market has near-zero variance (flat line)
+            const varianceA = calculateVariance(returnsA);
+            const varianceB = calculateVariance(returnsB);
+            const MIN_VARIANCE = 0.001; // Minimum variance threshold (~3% std dev)
+
+            if (varianceA < MIN_VARIANCE || varianceB < MIN_VARIANCE) {
+                // One or both markets are stagnant - skip this pair
+                continue;
+            }
 
             // Correlate returns, not prices
             const correlation = calculateCorrelation(returnsA, returnsB);
@@ -146,7 +160,7 @@ export async function loadData() {
     const links = candidateLinks.filter(l => l.keep);
 
     console.log(`API: Generated ${links.length} links.`);
-    return { nodes, links };
+    return { nodes, links, historyMap };
 }
 
 async function fetchMarkets() {
@@ -240,7 +254,8 @@ async function fetchMarketHistory(clobTokenId) {
     try {
         const params = new URLSearchParams({
             market: clobTokenId,
-            interval: 'max' // Get all available history
+            interval: 'max', // Get all available history
+            fidelity: '60' // Hourly data points (in minutes) to capture faster correlations
         });
 
         const targetUrl = `${CLOB_API_URL}?${params}`;
@@ -262,4 +277,79 @@ async function fetchMarketHistory(clobTokenId) {
         console.error(`API: fetchMarketHistory error for ${clobTokenId}`, error);
         return null;
     }
+}
+
+const CATEGORY_CACHE_KEY = 'polymarket_category_cache';
+
+/**
+ * Classify all nodes using LLM with localStorage caching.
+ * Only calls LLM for markets not already in cache.
+ */
+async function classifyNodesWithLLM(nodes) {
+    // Load existing cache
+    let cache = {};
+    try {
+        const cached = localStorage.getItem(CATEGORY_CACHE_KEY);
+        if (cached) {
+            cache = JSON.parse(cached);
+        }
+    } catch (e) {
+        console.warn('Failed to load category cache', e);
+    }
+
+    // Split nodes into cached and uncached
+    const uncachedNodes = nodes.filter(n => !cache[n.id]);
+    const cachedNodes = nodes.filter(n => cache[n.id]);
+
+    // Apply cached categories
+    cachedNodes.forEach(n => {
+        n.category = cache[n.id];
+    });
+
+    console.log(`API: ${cachedNodes.length} markets have cached categories, ${uncachedNodes.length} need LLM classification`);
+
+    if (uncachedNodes.length === 0) {
+        return;
+    }
+
+    // Update loading status
+    if (window.updateLoadingProgress) {
+        window.updateLoadingMessage?.('Classifying markets with AI...');
+    }
+
+    // Classify uncached nodes in batches
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < uncachedNodes.length; i += BATCH_SIZE) {
+        const batch = uncachedNodes.slice(i, i + BATCH_SIZE);
+
+        await Promise.all(batch.map(async (node) => {
+            try {
+                const response = await fetch('/api/classify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: node.name })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    node.category = data.category || 'Other';
+                    cache[node.id] = node.category;
+                } else {
+                    node.category = 'Other';
+                }
+            } catch (e) {
+                console.warn(`Failed to classify: ${node.name}`, e);
+                node.category = 'Other';
+            }
+        }));
+
+        // Save cache periodically
+        try {
+            localStorage.setItem(CATEGORY_CACHE_KEY, JSON.stringify(cache));
+        } catch (e) {
+            console.warn('Failed to save category cache', e);
+        }
+    }
+
+    console.log(`API: Classified ${uncachedNodes.length} markets with LLM`);
 }

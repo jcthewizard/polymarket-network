@@ -192,6 +192,18 @@ Using daily data means intraday movements are averaged out. Fast-moving correlat
 
 ---
 
+### 8. **Stagnant Markets (False Flat Correlation)**
+Markets that barely move (e.g., pre-game sports odds before the event starts) can show spurious correlation simply because both are flat. Two flat lines correlate perfectly, but this isn't meaningful.
+
+**Status**: ✅ Fixed — implemented minimum variance filter
+
+**Solution implemented**:
+- Calculate variance of log returns for each market
+- Skip pairs where either market has variance < 0.0001 (~1% std dev)
+- This filters out flat/stagnant markets from creating links
+
+---
+
 # Appendix
 
 ## Pearson Correlation Formula

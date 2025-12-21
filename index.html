@@ -112,6 +112,33 @@
         </button>
     </div>
 
+    <!-- Correlation Chart Modal -->
+    <div id="correlation-chart-modal"
+        class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div
+            class="modal-content bg-white rounded-2xl shadow-2xl w-[800px] max-w-[90vw] transform transition-all duration-200 scale-95 opacity-0">
+            <!-- Header -->
+            <div class="flex justify-between items-start p-6 border-b border-slate-200">
+                <div>
+                    <h2 class="text-sm text-slate-500 mb-1">Correlation Analysis</h2>
+                    <div id="chart-title" class="text-lg font-semibold leading-tight"></div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span id="chart-correlation" class="px-3 py-1 rounded-full text-sm font-semibold"></span>
+                    <button id="close-chart-btn" class="text-slate-400 hover:text-slate-700 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <!-- Chart Container -->
+            <div id="chart-container" class="p-6 pb-8"></div>
+        </div>
+    </div>
+
     <!-- Tooltip -->
     <div id="tooltip" class="opacity-0 transform scale-95 hidden">
         <div class="bg-white/95 backdrop-blur-md border border-slate-200 p-4 rounded-xl shadow-xl w-64">

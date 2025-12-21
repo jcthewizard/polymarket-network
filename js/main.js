@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log("Main: Loaded Data", data);
         state.allNodes = data.nodes;
         state.allLinks = data.links;
+        state.historyMap = data.historyMap; // Store for chart access
     } catch (err) {
         console.warn("Main: Failed to load API data, falling back to mock data.", err);
         const mockData = generateMockData();
@@ -50,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 2. Define Callbacks
     const onFilterChange = () => {
         console.log("Main: Filter Changed");
-        initVisualization(state, onNodeSelect);
+        initVisualization(state, onNodeSelect, state.historyMap);
     };
 
     const onNodeSelect = (node) => {
@@ -77,7 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log("Main: Filtered Links", state.links.length);
 
     console.log("Main: Initializing Visualization");
-    initVisualization(state, onNodeSelect); // Initial render
+    initVisualization(state, onNodeSelect, state.historyMap); // Initial render
 
     // 4. Global Event Listeners
     document.getElementById('reset-view-btn').addEventListener('click', () => resetView(state));
@@ -93,8 +94,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const newData = generateMockData();
         state.allNodes = newData.nodes;
         state.allLinks = newData.links;
+        state.historyMap = null; // Mock data has no history
         updateFilters(state); // Re-apply current filters to new data
-        initVisualization(state, onNodeSelect); // Re-render
+        initVisualization(state, onNodeSelect, state.historyMap); // Re-render
     });
 
     // Resize handler

@@ -18,6 +18,19 @@ export function calculateCorrelation(x, y) {
 }
 
 /**
+ * Calculate variance of a data series.
+ * Used to detect stagnant/flat markets.
+ * @param {number[]} data - Array of values (e.g., log returns)
+ * @returns {number} - Variance of the series
+ */
+export function calculateVariance(data) {
+    if (data.length === 0) return 0;
+    const mean = data.reduce((a, b) => a + b, 0) / data.length;
+    const squaredDiffs = data.map(x => Math.pow(x - mean, 2));
+    return squaredDiffs.reduce((a, b) => a + b, 0) / data.length;
+}
+
+/**
  * Calculate log returns from a price series.
  * Log returns: ln(p[i] / p[i-1])
  * This is preferred for correlation analysis because:
