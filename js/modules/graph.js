@@ -104,11 +104,9 @@ export function initVisualization(state, onNodeSelect, historyMap = null) {
         .data(state.links)
         .join("line")
         .attr("class", "visible")
-        .attr("stroke-opacity", 0.6)
-        .attr("stroke-width", d => Math.max(0.5, d.correlation * 2))
+        .attr("stroke-opacity", 0.8)
+        .attr("stroke-width", d => Math.max(1, d.correlation * 4))
         .attr("stroke", d => {
-            if (d.inefficiency === "High") return CONFIG.colors.linkHighInefficiency;
-            if (d.inefficiency === "Low") return CONFIG.colors.linkLowInefficiency;
             if (d.isInverse) return CONFIG.colors.linkInverse;
             return CONFIG.colors.linkDefault;
         })

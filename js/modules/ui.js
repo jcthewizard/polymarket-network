@@ -153,10 +153,6 @@ export function updateInfoPanel(d, state, onMarketClick) {
                             <span class="text-xs text-slate-500">${(r.correlation * 100).toFixed(0)}%</span>
                         </div>
                     </div>
-                    <span class="text-xs px-2 py-1 rounded font-medium ${r.inefficiency === 'High' ? 'bg-red-50 text-red-600 border border-red-200' :
-            r.inefficiency === 'Low' ? 'bg-green-50 text-green-600 border border-green-200' :
-                'bg-slate-100 text-slate-500 border border-slate-200'
-        }">${r.inefficiency}</span>
                 </div>
             `).join('')}
         </div>
