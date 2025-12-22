@@ -154,8 +154,13 @@ export function initVisualization(state, onNodeSelect, historyMap = null) {
     });
 
     // Fit to view once simulation settles and hide loading overlay
+    let initialFitDone = false;
     state.simulation.on("end", () => {
-        fitToView(state);
+        // Only fit to view on initial load (not after interactions)
+        if (!initialFitDone && !state.selectedNodeId) {
+            fitToView(state);
+            initialFitDone = true;
+        }
 
         // Fade out loading overlay
         const overlay = document.getElementById('loading-overlay');
@@ -176,7 +181,7 @@ export function initVisualization(state, onNodeSelect, historyMap = null) {
         .on("mouseout", () => hideTooltip());
 
     state.svg.on("click", (event) => {
-        if (event.target.tagName === "svg") resetView(state);
+        if (event.target.tagName === "svg") deselectNode(state);
     });
 }
 
@@ -356,6 +361,40 @@ function fitToViewInstant(state) {
 
     // Apply immediately without transition
     state.svg.call(state.zoom.transform, d3.zoomIdentity.translate(translateX, translateY).scale(scale));
+}
+
+// Deselect node (clicking off) - partial zoom out, keep node centered
+function deselectNode(state) {
+    const previouslySelectedNode = state.selectedNodeId
+        ? state.nodes.find(n => n.id === state.selectedNodeId)
+        : null;
+
+    state.selectedNodeId = null;
+
+    // Reset styles
+    state.nodeSelection.transition().duration(300)
+        .style("opacity", 1)
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 2);
+
+    state.linkSelection.transition().duration(300)
+        .style("opacity", 0.6)
+        .attr("stroke-width", d => Math.max(0.5, d.correlation * 2));
+
+    // Zoom out slightly but keep previously selected node somewhat centered
+    if (previouslySelectedNode && previouslySelectedNode.x !== undefined) {
+        const scale = 0.5; // Slightly zoomed out
+        const x = CONFIG.width / 2 - previouslySelectedNode.x * scale;
+        const y = CONFIG.height / 2 - previouslySelectedNode.y * scale;
+
+        state.svg.transition().duration(750)
+            .call(state.zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
+    }
+
+    // Hide Panel
+    const panel = document.getElementById('info-panel');
+    panel.classList.add('translate-x-full');
+    setTimeout(() => panel.classList.add('hidden'), 300);
 }
 
 export function resetView(state) {
