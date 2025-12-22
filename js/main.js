@@ -133,4 +133,77 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.simulation.alpha(0.3).restart();
         }
     });
+
+    // === Search Functionality ===
+    const searchInput = document.getElementById('market-search');
+    const searchResults = document.getElementById('search-results');
+
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+
+        if (query.length < 2) {
+            searchResults.classList.add('hidden');
+            searchResults.innerHTML = '';
+            return;
+        }
+
+        // Search through all nodes
+        const matches = state.allNodes
+            .filter(n => n.name.toLowerCase().includes(query))
+            .slice(0, 10); // Limit to 10 results
+
+        if (matches.length === 0) {
+            searchResults.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">No markets found</div>';
+        } else {
+            searchResults.innerHTML = matches.map(node => `
+                <div class="search-result-item px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0" data-id="${node.id}">
+                    <p class="text-sm text-slate-800 font-medium truncate">${node.name}</p>
+                    <p class="text-xs text-slate-400 mt-0.5">${node.category} • $${(node.volume / 1000000).toFixed(1)}M</p>
+                </div>
+            `).join('');
+        }
+
+        searchResults.classList.remove('hidden');
+    });
+
+    // Handle search result click
+    searchResults.addEventListener('click', (e) => {
+        const item = e.target.closest('.search-result-item');
+        if (item) {
+            const nodeId = item.dataset.id;
+            const targetNode = state.nodes.find(n => n.id === nodeId);
+            if (targetNode) {
+                selectNode(targetNode, state, onNodeSelect);
+                searchInput.value = '';
+                searchResults.classList.add('hidden');
+            } else {
+                // Node might be filtered out - show a message
+                searchInput.value = '';
+                searchResults.innerHTML = '<div class="px-4 py-3 text-sm text-amber-600">Market is hidden by current filters</div>';
+                setTimeout(() => searchResults.classList.add('hidden'), 1500);
+            }
+        }
+    });
+
+    // Close search results when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.classList.add('hidden');
+        }
+    });
+
+    // === Filter Panel Minimize/Maximize ===
+    const filterPanel = document.getElementById('filter-panel');
+    const filterToggleBtn = document.getElementById('filter-toggle-btn');
+    const minimizeBtn = document.getElementById('minimize-filter-btn');
+
+    minimizeBtn.addEventListener('click', () => {
+        filterPanel.classList.add('hidden');
+        filterToggleBtn.classList.remove('hidden');
+    });
+
+    filterToggleBtn.addEventListener('click', () => {
+        filterToggleBtn.classList.add('hidden');
+        filterPanel.classList.remove('hidden');
+    });
 });
