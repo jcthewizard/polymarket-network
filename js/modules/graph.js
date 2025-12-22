@@ -376,8 +376,8 @@ function deselectNode(state) {
         .attr("stroke-width", 2);
 
     state.linkSelection.transition().duration(300)
-        .style("opacity", 0.6)
-        .attr("stroke-width", d => Math.max(0.5, d.correlation * 2));
+        .style("opacity", 0.8)
+        .attr("stroke-width", d => Math.max(1, d.correlation * 4));
 
     // Zoom out slightly but keep previously selected node somewhat centered
     if (previouslySelectedNode && previouslySelectedNode.x !== undefined) {
@@ -405,8 +405,8 @@ export function resetView(state) {
         .attr("stroke-width", 2);
 
     state.linkSelection.transition().duration(300)
-        .style("opacity", 0.6)
-        .attr("stroke-width", d => Math.max(0.5, d.correlation * 2));
+        .style("opacity", 0.8)
+        .attr("stroke-width", d => Math.max(1, d.correlation * 4));
 
     // Fit all nodes in view, centered
     fitToView(state);
