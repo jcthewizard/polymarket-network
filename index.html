@@ -20,6 +20,54 @@
     <!-- Visualization Container -->
     <div id="viz-container"></div>
 
+    <!-- Loading Overlay -->
+    <div id="loading-overlay"
+        class="fixed inset-0 bg-slate-50 flex items-center justify-center z-50 transition-opacity duration-500">
+        <div class="text-center">
+            <!-- Animated Odds Chart -->
+            <div class="relative w-48 h-24 mx-auto mb-6">
+                <svg viewBox="0 0 200 100" class="w-full h-full">
+                    <!-- Grid lines -->
+                    <line x1="0" y1="50" x2="200" y2="50" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4" />
+
+                    <!-- Green line (animated) -->
+                    <path class="odds-line-green" d="M0,60 Q25,45 50,55 T100,40 T150,50 T200,35" fill="none"
+                        stroke="#22c55e" stroke-width="2.5" stroke-linecap="round">
+                        <animate attributeName="d" values="M0,60 Q25,45 50,55 T100,40 T150,50 T200,35;
+                                         M0,55 Q25,50 50,40 T100,55 T150,35 T200,45;
+                                         M0,45 Q25,55 50,50 T100,35 T150,55 T200,40;
+                                         M0,60 Q25,45 50,55 T100,40 T150,50 T200,35" dur="2s"
+                            repeatCount="indefinite" />
+                    </path>
+
+                    <!-- Red line (animated) -->
+                    <path class="odds-line-red" d="M0,40 Q25,55 50,45 T100,60 T150,50 T200,65" fill="none"
+                        stroke="#ef4444" stroke-width="2.5" stroke-linecap="round">
+                        <animate attributeName="d" values="M0,40 Q25,55 50,45 T100,60 T150,50 T200,65;
+                                         M0,45 Q25,50 50,60 T100,45 T150,65 T200,55;
+                                         M0,55 Q25,45 50,50 T100,65 T150,45 T200,60;
+                                         M0,40 Q25,55 50,45 T100,60 T150,50 T200,65" dur="2s"
+                            repeatCount="indefinite" />
+                    </path>
+
+                    <!-- Pulsing dots at end of lines -->
+                    <circle r="4" fill="#22c55e">
+                        <animate attributeName="cx" values="200;200;200" dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="cy" values="35;45;40;35" dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" values="1;0.5;1" dur="1s" repeatCount="indefinite" />
+                    </circle>
+                    <circle r="4" fill="#ef4444">
+                        <animate attributeName="cx" values="200;200;200" dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="cy" values="65;55;60;65" dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" values="1;0.5;1" dur="1s" repeatCount="indefinite" />
+                    </circle>
+                </svg>
+            </div>
+            <p class="text-slate-600 font-medium">Loading markets...</p>
+            <p class="text-slate-400 text-sm mt-1">Mapping correlations</p>
+        </div>
+    </div>
+
     <!-- UI Overlay -->
     <div class="ui-layer flex flex-col h-screen p-6 justify-between">
 
@@ -34,7 +82,7 @@
             <div class="relative flex-1 max-w-md mx-8">
                 <div class="relative">
                     <input type="text" id="market-search" placeholder="Search markets..."
-                        class="w-full px-4 py-2 pl-10 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
+                        class="w-full px-4 py-2 pl-10 bg-white border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
                         autocomplete="off">
                     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none"
                         stroke="currentColor" viewBox="0 0 24 24">

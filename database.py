@@ -149,6 +149,30 @@ def upsert_correlation(source_id: str, target_id: str, correlation: float, ineff
     conn.close()
 
 
+def clear_markets():
+    """Clear all markets and their price history."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('DELETE FROM markets')
+    cursor.execute('DELETE FROM price_history')
+    
+    conn.commit()
+    conn.close()
+
+
+def get_all_categories() -> Dict[str, str]:
+    """Get all market categories as a dict (market_id -> category)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT id, category FROM markets WHERE category IS NOT NULL AND category != "Other"')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return {row['id']: row['category'] for row in rows}
+
+
 def get_market_category(market_id: str) -> Optional[str]:
     """Get the category of a market, or None if not classified."""
     conn = get_connection()

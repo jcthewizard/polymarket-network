@@ -33,7 +33,7 @@ CATEGORIES = ["Politics", "Sports", "Finance", "Crypto", "Geopolitics", "Earning
 
 # Configuration
 REFRESH_INTERVAL_SECONDS = int(os.environ.get("REFRESH_INTERVAL", 600))  # 10 minutes default
-MIN_VOLUME = 50000  # Minimum volume to include
+MIN_VOLUME = 100000  # Minimum volume to include
 MIN_VARIANCE = 0.001  # Minimum variance for correlation
 CORRELATION_THRESHOLD = 0.5  # Minimum correlation to create link
 MAX_LINKS_PER_NODE = 5  # Maximum connections per node
@@ -45,21 +45,39 @@ def log(message: str):
 
 
 def fetch_markets() -> List[Dict]:
-    """Fetch markets from Polymarket Gamma API."""
-    url = f"https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=500"
+    """Fetch ALL markets from Polymarket Gamma API using pagination."""
+    all_markets = []
+    offset = 0
+    limit = 500  # API max per request
     
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
-        )
-        with urllib.request.urlopen(req, timeout=30) as response:
-            markets = json.loads(response.read().decode('utf-8'))
-            log(f"Fetched {len(markets)} markets from API")
-            return markets
-    except Exception as e:
-        log(f"Error fetching markets: {e}")
-        return []
+    while True:
+        url = f"https://gamma-api.polymarket.com/markets?active=true&closed=false&limit={limit}&offset={offset}"
+        
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                markets = json.loads(response.read().decode('utf-8'))
+                
+                if not markets:
+                    break  # No more markets
+                
+                all_markets.extend(markets)
+                
+                if len(markets) < limit:
+                    break  # Last page
+                
+                offset += limit
+                time.sleep(0.2)  # Small delay between requests
+                
+        except Exception as e:
+            log(f"Error fetching markets at offset {offset}: {e}")
+            break
+    
+    log(f"Fetched {len(all_markets)} markets from API")
+    return all_markets
 
 
 def fetch_market_history(clob_token_id: str) -> Optional[List[Dict]]:
@@ -183,13 +201,21 @@ def refresh_data():
     log("Starting data refresh...")
     start_time = time.time()
     
-    # 1. Fetch markets from API
+    # 1. Cache existing categories so we don't have to re-classify
+    category_cache = db.get_all_categories()
+    log(f"Cached {len(category_cache)} existing categories")
+    
+    # 2. Fetch markets from API
     raw_markets = fetch_markets()
     if not raw_markets:
         log("No markets fetched, aborting refresh.")
         return
     
-    # 2. Filter markets by volume
+    # 3. Clear old markets (will be replaced with fresh data)
+    db.clear_markets()
+    db.clear_correlations()
+    
+    # 4. Filter markets by volume and probability
     markets = []
     for m in raw_markets:
         try:
@@ -202,6 +228,10 @@ def refresh_data():
                 if prob > 1:
                     prob = prob / 100
                 prob = max(0, min(1, prob))
+                
+                # Filter out settled markets (prob < 5% or > 95%)
+                if prob < 0.05 or prob > 0.95:
+                    continue
                 
                 # Parse clob token id
                 clob_str = m.get('clobTokenIds', '[]')
@@ -220,16 +250,15 @@ def refresh_data():
         except Exception as e:
             continue
     
-    log(f"Filtered to {len(markets)} markets with volume >= {MIN_VOLUME}")
+    log(f"Filtered to {len(markets)} markets with volume >= {MIN_VOLUME} and 5% < prob < 95%")
     
     # 3. Fetch price history and store markets
     history_map = {}  # market_id -> history
     
     for i, market in enumerate(markets):
-        # Check if already has category
-        existing_category = db.get_market_category(market['id'])
-        if existing_category:
-            market['category'] = existing_category
+        # Check if already has category in cache
+        if market['id'] in category_cache:
+            market['category'] = category_cache[market['id']]
         else:
             # Classify with LLM
             market['category'] = classify_with_llm(market['name'])

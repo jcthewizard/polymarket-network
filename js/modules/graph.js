@@ -153,6 +153,18 @@ export function initVisualization(state, onNodeSelect, historyMap = null) {
             .attr("cy", d => d.y);
     });
 
+    // Fit to view once simulation settles and hide loading overlay
+    state.simulation.on("end", () => {
+        fitToView(state);
+
+        // Fade out loading overlay
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.remove(), 500);
+        }
+    });
+
     // Store references for interactivity
     state.linkSelection = link;
     state.nodeSelection = node;
@@ -263,6 +275,89 @@ export function selectNode(d, state, onNodeSelect) {
     if (onNodeSelect) onNodeSelect(d);
 }
 
+// Fit all nodes in view (used on initial load and by resetView)
+function fitToView(state) {
+    if (!state.nodes || state.nodes.length === 0) return;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    state.nodes.forEach(node => {
+        if (node.x !== undefined && node.y !== undefined) {
+            minX = Math.min(minX, node.x);
+            maxX = Math.max(maxX, node.x);
+            minY = Math.min(minY, node.y);
+            maxY = Math.max(maxY, node.y);
+        }
+    });
+
+    // Add padding (extra at top to avoid search bar overlap)
+    const padding = 200;
+    const topPadding = 500;
+    minX -= padding;
+    maxX += padding;
+    minY -= topPadding;
+    maxY += padding;
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    // Calculate scale to fit
+    const scaleX = CONFIG.width / width;
+    const scaleY = CONFIG.height / height;
+    const scale = Math.min(scaleX, scaleY, 1); // Don't zoom in past 1x
+
+    // Calculate translation to center
+    const translateX = CONFIG.width / 2 - centerX * scale;
+    const translateY = CONFIG.height / 2 - centerY * scale;
+
+    state.svg.transition().duration(750)
+        .call(state.zoom.transform, d3.zoomIdentity.translate(translateX, translateY).scale(scale));
+}
+
+// Fit all nodes in view instantly (no animation)
+function fitToViewInstant(state) {
+    if (!state.nodes || state.nodes.length === 0) return;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    state.nodes.forEach(node => {
+        if (node.x !== undefined && node.y !== undefined) {
+            minX = Math.min(minX, node.x);
+            maxX = Math.max(maxX, node.x);
+            minY = Math.min(minY, node.y);
+            maxY = Math.max(maxY, node.y);
+        }
+    });
+
+    // Add padding
+    const padding = 100;
+    minX -= padding;
+    maxX += padding;
+    minY -= padding;
+    maxY += padding;
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    // Calculate scale to fit
+    const scaleX = CONFIG.width / width;
+    const scaleY = CONFIG.height / height;
+    const scale = Math.min(scaleX, scaleY, 1); // Don't zoom in past 1x
+
+    // Calculate translation to center
+    const translateX = CONFIG.width / 2 - centerX * scale;
+    const translateY = CONFIG.height / 2 - centerY * scale;
+
+    // Apply immediately without transition
+    state.svg.call(state.zoom.transform, d3.zoomIdentity.translate(translateX, translateY).scale(scale));
+}
+
 export function resetView(state) {
     state.selectedNodeId = null;
 
@@ -276,9 +371,8 @@ export function resetView(state) {
         .style("opacity", 0.6)
         .attr("stroke-width", d => Math.max(0.5, d.correlation * 2));
 
-    // Reset Zoom
-    state.svg.transition().duration(750)
-        .call(state.zoom.transform, d3.zoomIdentity);
+    // Fit all nodes in view, centered
+    fitToView(state);
 
     // Hide Panel
     const panel = document.getElementById('info-panel');
