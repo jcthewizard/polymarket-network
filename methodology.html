@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Methodology | Polymarket Network</title>
+    <meta name="description" content="How correlations are calculated in Polymarket Network">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .formula {
+            font-family: 'Times New Roman', serif;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div class="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="text-slate-400 hover:text-slate-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                </a>
+                <h1 class="text-xl font-bold text-slate-900">Methodology</h1>
+            </div>
+            <a href="index.html" class="text-sm text-blue-600 hover:text-blue-700 font-medium">Back to Visualization
+                →</a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-4xl mx-auto px-6 py-10">
+        <!-- Intro -->
+        <section class="mb-12">
+            <h2 class="text-2xl font-bold text-slate-900 mb-4">How Correlations Are Calculated</h2>
+            <p class="text-lg text-slate-600 leading-relaxed">
+                This visualization shows relationships between Polymarket prediction markets using
+                <strong>log-return Pearson correlation</strong>. Markets that move together at the same time are
+                connected.
+            </p>
+        </section>
+
+        <!-- The Algorithm -->
+        <section class="mb-12">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">The Algorithm</h3>
+            <div class="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+                <div class="flex items-start gap-4">
+                    <span
+                        class="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0">1</span>
+                    <div>
+                        <p class="font-medium text-slate-800">Fetch Price History</p>
+                        <p class="text-sm text-slate-500">Get historical prices for each market from Polymarket's CLOB
+                            API</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-4">
+                    <span
+                        class="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0">2</span>
+                    <div>
+                        <p class="font-medium text-slate-800">Align by Timestamp</p>
+                        <p class="text-sm text-slate-500">Only use data points where both markets have values at the
+                            same time</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-4">
+                    <span
+                        class="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0">3</span>
+                    <div>
+                        <p class="font-medium text-slate-800">Calculate Log Returns</p>
+                        <p class="text-sm text-slate-500">Convert prices to returns: <span
+                                class="font-mono bg-slate-100 px-2 py-0.5 rounded">ln(price[i] / price[i-1])</span></p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-4">
+                    <span
+                        class="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0">4</span>
+                    <div>
+                        <p class="font-medium text-slate-800">Compute Pearson Correlation</p>
+                        <p class="text-sm text-slate-500">Measure linear relationship between the two return series</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-4">
+                    <span
+                        class="w-8 h-8 bg-green-100 text-green-600 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0">5</span>
+                    <div>
+                        <p class="font-medium text-slate-800">Create Link if |r| > 0.5</p>
+                        <p class="text-sm text-slate-500">Markets with correlation above 50% are connected in the
+                            visualization</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Why Log Returns? -->
+        <section class="mb-12">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">Why Log Returns?</h3>
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-6">
+                <p class="text-slate-700 mb-4">
+                    Raw price correlation can be <strong>misleading</strong>. If two markets both trend from 30% → 70%
+                    probability,
+                    they'll show high correlation even if their daily movements aren't synchronized.
+                </p>
+                <p class="text-slate-700">
+                    <strong>Log returns</strong> capture whether markets <em>move at the same time</em> — this is the
+                    standard approach in quantitative finance.
+                </p>
+            </div>
+        </section>
+
+        <!-- Filters Applied -->
+        <section class="mb-12">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">Filters Applied</h3>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div class="bg-white rounded-xl border border-slate-200 p-5">
+                    <p class="font-semibold text-slate-800 mb-1">Volume Filter</p>
+                    <p class="text-sm text-slate-500">Only markets with >$100,000 trading volume</p>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-5">
+                    <p class="font-semibold text-slate-800 mb-1">Probability Filter</p>
+                    <p class="text-sm text-slate-500">Only markets between 5% and 95% probability</p>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-5">
+                    <p class="font-semibold text-slate-800 mb-1">Variance Filter</p>
+                    <p class="text-sm text-slate-500">Skip stagnant markets with little price movement</p>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-5">
+                    <p class="font-semibold text-slate-800 mb-1">Minimum Data Points</p>
+                    <p class="text-sm text-slate-500">At least 10 aligned timestamps required</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Inefficiency Detection -->
+        <section class="mb-12">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">Inefficiency Detection</h3>
+            <div class="bg-white rounded-xl border border-slate-200 p-6">
+                <p class="text-slate-700 mb-4">
+                    A <strong class="text-red-600">High Inefficiency</strong> link (red) is detected when:
+                </p>
+                <ul class="list-disc list-inside text-slate-600 space-y-2 ml-2">
+                    <li>Correlation > 60% (markets move together), <strong>AND</strong></li>
+                    <li>Probability difference > 30% (yet prices disagree)</li>
+                </ul>
+                <p class="text-slate-500 text-sm mt-4">
+                    This suggests a potential arbitrage opportunity — highly correlated markets with misaligned prices.
+                </p>
+            </div>
+        </section>
+
+        <!-- Pearson Formula -->
+        <section class="mb-12">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">Pearson Correlation Formula</h3>
+            <div class="bg-slate-100 rounded-xl p-6 text-center">
+                <p class="formula text-2xl text-slate-800 mb-4">
+                    r = (n∑xy - ∑x∑y) / √[(n∑x² - (∑x)²)(n∑y² - (∑y)²)]
+                </p>
+                <div class="flex justify-center gap-8 text-sm text-slate-600">
+                    <span><strong>+1.0</strong> = Perfect positive</span>
+                    <span><strong>0</strong> = No relationship</span>
+                    <span><strong>-1.0</strong> = Perfect inverse</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Data Source -->
+        <section class="mb-12">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">Data Source</h3>
+            <div class="bg-white rounded-xl border border-slate-200 p-6">
+                <p class="text-slate-600 mb-4">
+                    Market data is fetched from the <strong>Polymarket CLOB API</strong>:
+                </p>
+                <code class="block bg-slate-100 rounded-lg p-4 text-sm text-slate-700 font-mono overflow-x-auto">
+                    GET https://clob.polymarket.com/prices-history?market={clobTokenId}&interval=1d&fidelity=60
+                </code>
+                <p class="text-slate-500 text-sm mt-4">
+                    Data refreshes automatically every 10 minutes. Markets are classified using GPT-4o-mini.
+                </p>
+            </div>
+        </section>
+
+        <!-- Limitations -->
+        <section class="mb-12">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">Known Limitations</h3>
+            <div class="space-y-3">
+                <div class="bg-white rounded-xl border border-slate-200 p-4 flex items-start gap-3">
+                    <span class="text-amber-500">⚠️</span>
+                    <p class="text-sm text-slate-600"><strong>Linear only:</strong> Pearson only captures linear
+                        relationships, not threshold effects</p>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-4 flex items-start gap-3">
+                    <span class="text-amber-500">⚠️</span>
+                    <p class="text-sm text-slate-600"><strong>Same-event variants:</strong> Sub-markets of the same
+                        event may correlate mechanically</p>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-4 flex items-start gap-3">
+                    <span class="text-amber-500">⚠️</span>
+                    <p class="text-sm text-slate-600"><strong>No lag detection:</strong> If Market A leads Market B by
+                        1-2 days, this isn't captured</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <div class="text-center text-sm text-slate-400 pt-8 border-t border-slate-200">
+            <a href="index.html" class="text-blue-600 hover:text-blue-700">← Back to Visualization</a>
+        </div>
+    </main>
+</body>
+
+</html>

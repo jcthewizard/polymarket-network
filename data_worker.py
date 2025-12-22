@@ -211,11 +211,7 @@ def refresh_data():
         log("No markets fetched, aborting refresh.")
         return
     
-    # 3. Clear old markets (will be replaced with fresh data)
-    db.clear_markets()
-    db.clear_correlations()
-    
-    # 4. Filter markets by volume and probability
+    # 3. Filter markets by volume and probability
     markets = []
     for m in raw_markets:
         try:
@@ -252,7 +248,7 @@ def refresh_data():
     
     log(f"Filtered to {len(markets)} markets with volume >= {MIN_VOLUME} and 5% < prob < 95%")
     
-    # 3. Fetch price history and store markets
+    # 5. Fetch price history and classify markets (IN MEMORY - no DB writes yet)
     history_map = {}  # market_id -> history
     
     for i, market in enumerate(markets):
@@ -264,13 +260,9 @@ def refresh_data():
             market['category'] = classify_with_llm(market['name'])
             log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
         
-        # Upsert market
-        db.upsert_market(market)
-        
-        # Fetch history
+        # Fetch history (but don't store yet)
         history = fetch_market_history(market['clob_token_id'])
         if history and len(history) >= 10:
-            db.upsert_price_history(market['id'], history)
             history_map[market['id']] = history
         
         if (i + 1) % 50 == 0:
@@ -279,11 +271,10 @@ def refresh_data():
         # Small delay to avoid rate limiting
         time.sleep(0.1)
     
-    log(f"Stored {len(markets)} markets with {len(history_map)} having valid history")
+    log(f"Fetched {len(markets)} markets with {len(history_map)} having valid history")
     
-    # 4. Calculate correlations
+    # 6. Calculate correlations (IN MEMORY)
     log("Calculating correlations...")
-    db.clear_correlations()
     
     market_ids = list(history_map.keys())
     candidate_links = []
@@ -338,24 +329,26 @@ def refresh_data():
                 adjacency[id_b].append(candidate_links[-1])
     
     # Limit links per node
+    final_links = []
     links_added = set()
     for mid in market_ids:
         node_links = sorted(adjacency[mid], key=lambda x: abs(x['correlation']), reverse=True)
         for link in node_links[:MAX_LINKS_PER_NODE]:
             link_key = tuple(sorted([link['source'], link['target']]))
             if link_key not in links_added:
-                db.upsert_correlation(link['source'], link['target'], link['correlation'], link['inefficiency'])
+                final_links.append(link)
                 links_added.add(link_key)
     
-    log(f"Stored {len(links_added)} correlations")
+    log(f"Calculated {len(final_links)} correlations")
     
-    # 5. Update metadata
+    # 7. ATOMIC COMMIT - Replace all data at once
+    log("Committing all data atomically...")
+    db.atomic_replace_all_data(markets, history_map, final_links)
+    
+    # 8. Update metadata
     db.set_metadata('last_refresh', datetime.now().isoformat())
     db.set_metadata('total_markets', str(len(markets)))
-    db.set_metadata('total_correlations', str(len(links_added)))
-    
-    # 6. Cleanup old data
-    db.cleanup_old_history(days=30)
+    db.set_metadata('total_correlations', str(len(final_links)))
     
     elapsed = time.time() - start_time
     log(f"Data refresh complete in {elapsed:.1f} seconds")

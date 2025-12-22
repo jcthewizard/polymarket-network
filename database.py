@@ -161,6 +161,61 @@ def clear_markets():
     conn.close()
 
 
+def atomic_replace_all_data(markets: List[Dict], histories: Dict[str, List], correlations: List[Dict]):
+    """
+    Atomically replace all markets, price history, and correlations in a single transaction.
+    This prevents race conditions where clients see partial data during refresh.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Start transaction (implicit with sqlite3)
+        
+        # 1. Clear all existing data
+        cursor.execute('DELETE FROM markets')
+        cursor.execute('DELETE FROM price_history')
+        cursor.execute('DELETE FROM correlations')
+        
+        # 2. Insert all markets
+        for market in markets:
+            cursor.execute('''
+                INSERT OR REPLACE INTO markets (id, name, slug, category, volume, probability, clob_token_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                market['id'],
+                market['name'],
+                market.get('slug', ''),
+                market['category'],
+                market['volume'],
+                market['probability'],
+                market['clob_token_id']
+            ))
+        
+        # 3. Insert all price history
+        for market_id, history in histories.items():
+            cursor.executemany('''
+                INSERT OR IGNORE INTO price_history (market_id, timestamp, price)
+                VALUES (?, ?, ?)
+            ''', [(market_id, point['t'], point['p']) for point in history])
+        
+        # 4. Insert all correlations
+        for link in correlations:
+            cursor.execute('''
+                INSERT OR REPLACE INTO correlations (source_id, target_id, correlation, inefficiency)
+                VALUES (?, ?, ?, ?)
+            ''', (link['source'], link['target'], link['correlation'], link['inefficiency']))
+        
+        # Commit all changes atomically
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
 def get_all_categories() -> Dict[str, str]:
     """Get all market categories as a dict (market_id -> category)."""
     conn = get_connection()

@@ -206,4 +206,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         filterToggleBtn.classList.add('hidden');
         filterPanel.classList.remove('hidden');
     });
+
+    // === Help Modal ===
+    const infoBtn = document.getElementById('info-btn');
+    const helpModal = document.getElementById('help-modal');
+    const closeHelpBtn = document.getElementById('close-help-btn');
+
+    infoBtn.addEventListener('click', () => {
+        helpModal.classList.remove('hidden');
+    });
+
+    closeHelpBtn.addEventListener('click', () => {
+        helpModal.classList.add('hidden');
+    });
+
+    // Close modal when clicking backdrop
+    helpModal.addEventListener('click', (e) => {
+        if (e.target === helpModal) {
+            helpModal.classList.add('hidden');
+        }
+    });
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !helpModal.classList.contains('hidden')) {
+            helpModal.classList.add('hidden');
+        }
+    });
 });
