@@ -155,8 +155,8 @@
             <!-- Volume Filter -->
             <div>
                 <label class="text-xs text-slate-400 block mb-1">Min Volume: <span id="vol-display"
-                        class="text-slate-700 font-mono">$100k</span></label>
-                <input type="range" id="volume-filter" min="100000" max="1000000" step="10000" value="100000"
+                        class="text-slate-700 font-mono">$50k</span></label>
+                <input type="range" id="volume-filter" min="50000" max="1000000" step="10000" value="50000"
                     class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
             </div>
 
@@ -318,28 +318,31 @@
                     </div>
                 </div>
 
-                <!-- Data Info -->
+                <!-- Data & Methodology -->
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Data</h3>
-                    <p class="text-sm text-slate-600">
-                        Markets are filtered to show those with >$100k volume and 5-95% probability.
-                        Data refreshes automatically every 10 minutes.
-                    </p>
+                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Data & Correlation
+                    </h3>
+                    <div class="space-y-3 text-sm text-slate-600">
+                        <p>
+                            Markets are filtered to show those with <strong>>$50k volume</strong> and <strong>5-95%
+                                probability</strong>.
+                            Data refreshes automatically every 10 minutes from Polymarket.
+                        </p>
+                        <div class="bg-slate-50 rounded-lg p-3 space-y-2">
+                            <p class="font-medium text-slate-700">How Correlations Work:</p>
+                            <p class="text-xs">
+                                We use <strong>log-return correlation</strong> — this measures whether markets
+                                move <em>up and down on the same days</em>, not just whether they trend together.
+                            </p>
+                            <p class="text-xs">
+                                Only pairs with <strong>>50% correlation</strong> are shown as connected.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             </div>
-
-            <!-- Modal Footer -->
-            <div class="px-6 py-4 border-t border-slate-100 bg-slate-50">
-                <a href="methodology.html"
-                    class="flex items-center justify-center gap-2 text-blue-600 hover:text-blue-700 font-medium text-sm transition-colors">
-                    <span>Learn how correlations are calculated</span>
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
-                </a>
-            </div>
         </div>
+    </div>
     </div>
 
     <!-- Main Entry Point -->

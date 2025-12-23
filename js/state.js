@@ -10,6 +10,6 @@ export const state = {
     selectedNodeId: null,
     filters: {
         categories: new Set(["Crypto", "Politics", "Science", "Sports", "Business", "Other"]), // Added "Other"
-        minVolume: 100000 // Start at $100k
+        minVolume: 50000 // Start at $50k
     }
 };

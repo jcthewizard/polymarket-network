@@ -33,7 +33,7 @@ CATEGORIES = ["Politics", "Sports", "Finance", "Crypto", "Geopolitics", "Earning
 
 # Configuration
 REFRESH_INTERVAL_SECONDS = int(os.environ.get("REFRESH_INTERVAL", 600))  # 10 minutes default
-MIN_VOLUME = 100000  # Minimum volume to include
+MIN_VOLUME = 50000  # Minimum volume to include
 MIN_VARIANCE = 0.001  # Minimum variance for correlation
 CORRELATION_THRESHOLD = 0.5  # Minimum correlation to create link
 MAX_LINKS_PER_NODE = 10  # Maximum connections per node

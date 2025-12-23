@@ -147,8 +147,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // Search through all nodes
-        const matches = state.allNodes
+        // Search through filtered nodes (respects current category and volume filters)
+        const matches = state.nodes
             .filter(n => n.name.toLowerCase().includes(query))
             .slice(0, 10); // Limit to 10 results
 
