@@ -1,11 +1,8 @@
 body {
     font-family: 'Inter', sans-serif;
     background-color: #f8fafc;
-    /* Slate 50 */
     color: #1e293b;
-    /* Slate 800 */
     overflow: hidden;
-    /* Prevent scrolling */
 }
 
 #viz-container {
@@ -21,12 +18,10 @@ body {
     position: relative;
     z-index: 10;
     pointer-events: none;
-    /* Let clicks pass through to the graph */
 }
 
 .ui-element {
     pointer-events: auto;
-    /* Re-enable clicks for UI elements */
 }
 
 #tooltip {
@@ -52,4 +47,129 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
+}
+
+/* ========== MOBILE RESPONSIVE STYLES ========== */
+
+/* Mobile: Stack header elements vertically */
+@media (max-width: 768px) {
+    .ui-layer {
+        padding: 1rem !important;
+    }
+
+    /* Header becomes column layout on mobile */
+    header.ui-element {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0.75rem;
+    }
+
+    /* Title section */
+    header.ui-element>div:first-child h1 {
+        font-size: 1.5rem !important;
+    }
+
+    header.ui-element>div:first-child p {
+        font-size: 0.75rem !important;
+    }
+
+    /* Search bar - full width on mobile */
+    .search-container-mobile {
+        max-width: 100% !important;
+        margin: 0 !important;
+    }
+
+    /* Header controls row - hide some elements on mobile */
+    .header-controls {
+        justify-content: flex-end;
+    }
+
+    /* Hide sync status text on mobile, keep dot */
+    #sync-status span:last-child {
+        display: none;
+    }
+
+    #sync-status {
+        padding: 0.5rem;
+    }
+
+    /* Reset button - smaller on mobile */
+    #reset-view-btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    /* Filter panel - full width at bottom on mobile */
+    #filter-panel {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        max-width: 100% !important;
+        border-radius: 1rem 1rem 0 0 !important;
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+
+    /* Filter toggle button - visible on mobile */
+    #filter-toggle-btn {
+        position: fixed !important;
+        bottom: 1rem !important;
+        left: 1rem !important;
+    }
+
+    /* Info panel - full screen overlay on mobile */
+    #info-panel {
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        border-radius: 0 !important;
+        transform: translateY(100%) !important;
+    }
+
+    #info-panel:not(.hidden) {
+        transform: translateY(0) !important;
+    }
+
+    /* Help modal - full width on mobile */
+    #help-modal>div>div {
+        max-width: 100% !important;
+        margin: 1rem !important;
+        max-height: calc(100vh - 2rem);
+    }
+
+    /* Tooltip - smaller on mobile */
+    #tooltip>div {
+        max-width: 200px !important;
+        font-size: 0.75rem !important;
+    }
+}
+
+/* Small mobile (< 480px) */
+@media (max-width: 480px) {
+    .ui-layer {
+        padding: 0.75rem !important;
+    }
+
+    header.ui-element>div:first-child h1 {
+        font-size: 1.25rem !important;
+    }
+
+    /* Hide Reset View button on very small screens */
+    #reset-view-btn {
+        display: none;
+    }
+
+    /* Make info button smaller */
+    #info-btn {
+        width: 2rem;
+        height: 2rem;
+    }
+
+    #info-btn svg {
+        width: 1rem;
+        height: 1rem;
+    }
 }

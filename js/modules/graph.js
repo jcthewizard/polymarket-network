@@ -391,7 +391,14 @@ function deselectNode(state) {
 
     // Hide Panel
     const panel = document.getElementById('info-panel');
-    panel.classList.add('translate-x-full');
+    const isMobile = window.innerWidth < 768;
+    if (isMobile) {
+        panel.classList.add('translate-y-full');
+        panel.classList.remove('translate-y-0');
+    } else {
+        panel.classList.add('md:translate-x-full');
+        panel.classList.remove('md:translate-x-0');
+    }
     setTimeout(() => panel.classList.add('hidden'), 300);
 }
 
@@ -413,6 +420,13 @@ export function resetView(state) {
 
     // Hide Panel
     const panel = document.getElementById('info-panel');
-    panel.classList.add('translate-x-full');
+    const isMobile = window.innerWidth < 768;
+    if (isMobile) {
+        panel.classList.add('translate-y-full');
+        panel.classList.remove('translate-y-0');
+    } else {
+        panel.classList.add('md:translate-x-full');
+        panel.classList.remove('md:translate-x-0');
+    }
     setTimeout(() => panel.classList.add('hidden'), 300);
 }

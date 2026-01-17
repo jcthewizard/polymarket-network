@@ -61,8 +61,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
         const panel = document.getElementById('info-panel');
+        const isMobile = window.innerWidth < 768;
         panel.classList.remove('hidden');
-        panel.classList.remove('translate-x-full');
+        if (isMobile) {
+            panel.classList.remove('translate-y-full');
+            panel.classList.add('translate-y-0');
+        } else {
+            panel.classList.remove('md:translate-x-full');
+            panel.classList.add('md:translate-x-0');
+        }
     };
 
     // 3. Initialize UI & Visualization
@@ -78,13 +85,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     initVisualization(state, onNodeSelect, state.historyMap);
 
     // 4. Global Event Listeners
-    document.getElementById('reset-view-btn').addEventListener('click', () => resetView(state));
+    const resetBtn = document.getElementById('reset-view-btn');
+    if (resetBtn) resetBtn.addEventListener('click', () => resetView(state));
 
-    document.getElementById('close-panel-btn').addEventListener('click', () => {
+    // Close panel function (works for both mobile and desktop)
+    const closeInfoPanel = () => {
         const panel = document.getElementById('info-panel');
-        panel.classList.add('translate-x-full');
+        const isMobile = window.innerWidth < 768;
+
+        if (isMobile) {
+            panel.classList.add('translate-y-full');
+            panel.classList.remove('translate-y-0');
+        } else {
+            panel.classList.add('md:translate-x-full');
+            panel.classList.remove('md:translate-x-0');
+        }
         setTimeout(() => panel.classList.add('hidden'), 300);
-    });
+    };
+
+    // Desktop close button
+    const closePanelBtn = document.getElementById('close-panel-btn');
+    if (closePanelBtn) closePanelBtn.addEventListener('click', closeInfoPanel);
+
+    // Mobile close button
+    const closePanelBtnMobile = document.getElementById('close-panel-btn-mobile');
+    if (closePanelBtnMobile) closePanelBtnMobile.addEventListener('click', closeInfoPanel);
 
     // Update sync status display
     async function updateSyncStatus() {
@@ -197,24 +222,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     const filterToggleBtn = document.getElementById('filter-toggle-btn');
     const minimizeBtn = document.getElementById('minimize-filter-btn');
 
+    // Check if we're on mobile
+    const isMobile = () => window.innerWidth < 768;
+
     minimizeBtn.addEventListener('click', () => {
         filterPanel.classList.add('hidden');
-        filterToggleBtn.classList.remove('hidden');
+        filterPanel.classList.remove('block');
+        if (isMobile()) {
+            filterToggleBtn.classList.remove('hidden');
+        }
     });
 
     filterToggleBtn.addEventListener('click', () => {
         filterToggleBtn.classList.add('hidden');
         filterPanel.classList.remove('hidden');
+        filterPanel.classList.add('block');
     });
 
     // === Help Modal ===
     const infoBtn = document.getElementById('info-btn');
+    const infoBtnMobile = document.getElementById('info-btn-mobile');
     const helpModal = document.getElementById('help-modal');
     const closeHelpBtn = document.getElementById('close-help-btn');
 
-    infoBtn.addEventListener('click', () => {
+    const openHelpModal = () => {
         helpModal.classList.remove('hidden');
-    });
+    };
+
+    if (infoBtn) infoBtn.addEventListener('click', openHelpModal);
+    if (infoBtnMobile) infoBtnMobile.addEventListener('click', openHelpModal);
 
     closeHelpBtn.addEventListener('click', () => {
         helpModal.classList.add('hidden');
