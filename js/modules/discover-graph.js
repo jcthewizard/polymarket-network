@@ -71,9 +71,9 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     const n = data.followers.length;
     const baseRadius = Math.max(180, n * 20);
     const tierConfig = {
-        high:   { min: 0.7, radius: baseRadius * 0.5 },   // inner ring
-        medium: { min: 0.4, radius: baseRadius * 0.85 },   // middle ring
-        low:    { min: 0.0, radius: baseRadius * 1.2 },     // outer ring
+        high:   { min: 0.7, radius: baseRadius * 0.7 },    // inner ring
+        medium: { min: 0.4, radius: baseRadius * 1.1 },    // middle ring
+        low:    { min: 0.0, radius: baseRadius * 1.5 },    // outer ring
     };
 
     function getTier(confidence) {
@@ -171,18 +171,32 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
 
     // --- Render ---
 
-    // Tier ring guides (subtle dashed circles)
+    // Tier ring guides with labels
     const ringGroup = g.append('g').attr('class', 'tier-rings');
-    [tierConfig.high, tierConfig.medium, tierConfig.low].forEach((tier, i) => {
+    const tierLabels = [
+        { ...tierConfig.high, label: '70%+' },
+        { ...tierConfig.medium, label: '40-70%' },
+        { ...tierConfig.low, label: '<40%' },
+    ];
+    tierLabels.forEach(tier => {
         ringGroup.append('circle')
             .attr('cx', centerX)
             .attr('cy', centerY)
             .attr('r', tier.radius)
             .attr('fill', 'none')
-            .attr('stroke', '#e2e8f0')
-            .attr('stroke-width', 1)
-            .attr('stroke-dasharray', '4,4')
-            .attr('opacity', 0.5);
+            .attr('stroke', '#cbd5e1')
+            .attr('stroke-width', 1.5)
+            .attr('stroke-dasharray', '6,4')
+            .attr('opacity', 0.6);
+        ringGroup.append('text')
+            .attr('x', centerX)
+            .attr('y', centerY - tier.radius - 6)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', '10px')
+            .attr('font-family', 'Inter, sans-serif')
+            .attr('fill', '#94a3b8')
+            .attr('pointer-events', 'none')
+            .text(tier.label);
     });
 
     // Links
@@ -211,18 +225,7 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .attr('stroke', d => d.is_same_outcome ? '#64748b' : '#f97316')
         .style('pointer-events', 'none');
 
-    // Confidence labels on links
-    const linkLabels = g.append('g')
-        .selectAll('text')
-        .data(links)
-        .join('text')
-        .attr('text-anchor', 'middle')
-        .attr('dy', -8)
-        .attr('font-size', '10px')
-        .attr('font-family', 'Inter, sans-serif')
-        .attr('fill', '#94a3b8')
-        .attr('pointer-events', 'none')
-        .text(d => `${Math.round(d.confidence * 100)}%`);
+    // (Confidence is shown via tier rings — no per-edge labels)
 
     // Nodes
     const nodeGroup = g.append('g');
@@ -300,10 +303,6 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
             .attr('x2', d => d.target.x)
             .attr('y2', d => d.target.y);
 
-        linkLabels
-            .attr('x', d => (d.source.x + d.target.x) / 2)
-            .attr('y', d => (d.source.y + d.target.y) / 2);
-
         node.attr('transform', d => `translate(${d.x},${d.y})`);
     });
 
@@ -331,15 +330,12 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
             .style('opacity', d => d.target.id === marketId || d.target === marketId ? 1 : 0.08);
         linkHitArea
             .style('opacity', d => d.target.id === marketId || d.target === marketId ? 1 : 0.08);
-        linkLabels.transition().duration(200)
-            .style('opacity', d => d.target.id === marketId || d.target === marketId ? 1 : 0);
     }
 
     function clearHighlight() {
         node.transition().duration(200).style('opacity', 1);
         linkVisible.transition().duration(200).style('opacity', 1);
         linkHitArea.style('opacity', 1);
-        linkLabels.transition().duration(200).style('opacity', 1);
     }
 
     return { highlightNode, clearHighlight };
