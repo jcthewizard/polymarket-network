@@ -33,7 +33,8 @@ CATEGORIES = ["Politics", "Sports", "Finance", "Crypto", "Geopolitics", "Earning
 
 # Configuration
 REFRESH_INTERVAL_SECONDS = int(os.environ.get("REFRESH_INTERVAL", 600))  # 10 minutes default
-MIN_VOLUME = 50000  # Minimum volume to include
+MIN_VOLUME_STORE = 10000  # Minimum volume to store in DB (used by discover page)
+MIN_VOLUME_CORRELATE = 50000  # Minimum volume for history fetch + correlation (used by network page)
 MIN_VARIANCE = 0.001  # Minimum variance for correlation
 CORRELATION_THRESHOLD = 0.5  # Minimum correlation to create link
 MAX_LINKS_PER_NODE = 10  # Maximum connections per node
@@ -211,12 +212,12 @@ def refresh_data():
         log("No markets fetched, aborting refresh.")
         return
     
-    # 3. Filter markets by volume and probability
+    # 3. Filter markets by volume and probability (store all >= 10k)
     markets = []
     for m in raw_markets:
         try:
             volume = float(m.get('volume', 0) or 0)
-            if volume >= MIN_VOLUME:
+            if volume >= MIN_VOLUME_STORE:
                 # Parse probability
                 prices_str = m.get('outcomePrices', '[]')
                 prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
@@ -224,16 +225,16 @@ def refresh_data():
                 if prob > 1:
                     prob = prob / 100
                 prob = max(0, min(1, prob))
-                
+
                 # Filter out settled markets (prob < 5% or > 95%)
                 if prob < 0.05 or prob > 0.95:
                     continue
-                
+
                 # Parse clob token id
                 clob_str = m.get('clobTokenIds', '[]')
                 clob_ids = json.loads(clob_str) if isinstance(clob_str, str) else clob_str
                 clob_token_id = clob_ids[0] if clob_ids else None
-                
+
                 if clob_token_id:
                     markets.append({
                         'id': m['id'],
@@ -245,12 +246,12 @@ def refresh_data():
                     })
         except Exception as e:
             continue
-    
-    log(f"Filtered to {len(markets)} markets with volume >= {MIN_VOLUME} and 5% < prob < 95%")
-    
-    # 5. Fetch price history and classify markets (IN MEMORY - no DB writes yet)
+
+    log(f"Filtered to {len(markets)} markets with volume >= ${MIN_VOLUME_STORE:,} and 5% < prob < 95%")
+
+    # 5. Classify all markets, but only fetch history for high-volume ones (>= 50k)
     history_map = {}  # market_id -> history
-    
+
     for i, market in enumerate(markets):
         # Check if already has category in cache
         if market['id'] in category_cache:
@@ -259,19 +260,20 @@ def refresh_data():
             # Classify with LLM
             market['category'] = classify_with_llm(market['name'])
             log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
-        
-        # Fetch history (but don't store yet)
-        history = fetch_market_history(market['clob_token_id'])
-        if history and len(history) >= 10:
-            history_map[market['id']] = history
-        
+
+        # Only fetch history for markets above correlation threshold
+        if market['volume'] >= MIN_VOLUME_CORRELATE:
+            history = fetch_market_history(market['clob_token_id'])
+            if history and len(history) >= 10:
+                history_map[market['id']] = history
+
         if (i + 1) % 50 == 0:
             log(f"  Processed {i + 1}/{len(markets)} markets...")
-        
+
         # Small delay to avoid rate limiting
         time.sleep(0.1)
-    
-    log(f"Fetched {len(markets)} markets with {len(history_map)} having valid history")
+
+    log(f"Stored {len(markets)} markets, {len(history_map)} with history (vol >= ${MIN_VOLUME_CORRELATE:,})")
     
     # 6. Calculate correlations (IN MEMORY)
     log("Calculating correlations...")

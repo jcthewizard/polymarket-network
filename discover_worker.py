@@ -7,7 +7,6 @@ Streams progress events so the frontend can show a live log.
 """
 
 import json
-import time
 import urllib.request
 import urllib.error
 from difflib import SequenceMatcher
@@ -178,69 +177,6 @@ Return JSON:
     return data.get("followers", [])
 
 
-def _fetch_markets_from_api(min_volume: int = 10000) -> List[Dict]:
-    """Fetch markets directly from Polymarket Gamma API with lower volume floor.
-    Returns markets in the same dict format as db.get_all_markets()."""
-    all_raw = []
-    offset = 0
-    limit = 500
-
-    while True:
-        url = f"https://gamma-api.polymarket.com/markets?active=true&closed=false&limit={limit}&offset={offset}"
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
-            )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                raw = json.loads(response.read().decode("utf-8"))
-                if not raw:
-                    break
-                all_raw.extend(raw)
-                if len(raw) < limit:
-                    break
-                offset += limit
-                time.sleep(0.2)
-        except Exception:
-            break
-
-    # Look up cached categories from DB so we don't need to re-classify
-    category_cache = db.get_all_categories()
-
-    markets = []
-    for m in all_raw:
-        try:
-            volume = float(m.get("volume", 0) or 0)
-            if volume < min_volume:
-                continue
-
-            # Parse probability
-            prices_str = m.get("outcomePrices", "[]")
-            prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
-            prob = float(prices[0]) if prices else 0.5
-            if prob > 1:
-                prob = prob / 100
-            prob = max(0, min(1, prob))
-
-            # Filter settled markets
-            if prob < 0.05 or prob > 0.95:
-                continue
-
-            market_id = m["id"]
-            markets.append({
-                "id": market_id,
-                "name": m["question"],
-                "slug": m.get("slug", ""),
-                "category": category_cache.get(market_id, "Other"),
-                "volume": volume,
-                "probability": prob,
-            })
-        except Exception:
-            continue
-
-    return markets
-
-
 def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume: int = 10000) -> Generator[Dict, None, None]:
     """
     Find follower markets for a given leader market.
@@ -253,24 +189,16 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
       {"type": "done",   "data": {leader, followers}}          — final result
     """
 
-    # 1. Fetch markets directly from Polymarket API
-    yield {"type": "step", "message": "Fetching markets from Polymarket API"}
+    # 1. Load markets from database
+    yield {"type": "step", "message": "Loading markets from database"}
 
-    all_markets = _fetch_markets_from_api(min_volume)
+    all_markets = db.get_all_markets()
 
     leader = None
     for m in all_markets:
         if m["id"] == leader_market_id:
             leader = m
             break
-
-    if leader is None:
-        # Leader might be below min_volume — fetch without filter just for the leader
-        all_for_leader = _fetch_markets_from_api(0)
-        for m in all_for_leader:
-            if m["id"] == leader_market_id:
-                leader = m
-                break
 
     if leader is None:
         yield {"type": "error", "message": f"Leader market not found: {leader_market_id}"}
@@ -285,10 +213,10 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
         "probability": leader.get("probability", 0.5),
     }
 
-    # Filter candidates (exclude leader)
+    # Filter candidates (exclude leader, apply volume threshold)
     candidates = [
         m for m in all_markets
-        if m["id"] != leader_market_id
+        if m["id"] != leader_market_id and m["volume"] >= min_volume
     ]
 
     yield {"type": "result", "message": f"Loaded {len(candidates)} candidate markets (vol >= ${min_volume:,}, prob 5-95%)", "data": {"count": len(candidates)}}

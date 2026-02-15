@@ -65,9 +65,11 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         try:
             data = db.get_all_data()
             
-            # Transform to match expected client format
+            # Transform to match expected client format (network page: 50k+ only)
             nodes = []
             for market in data['markets']:
+                if market['volume'] < 50000:
+                    continue
                 nodes.append({
                     'id': market['id'],
                     'name': market['name'],
