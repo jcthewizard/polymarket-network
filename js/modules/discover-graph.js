@@ -211,16 +211,29 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .attr('stroke-width', 2)
         .attr('stroke-opacity', 0.3);
 
-    // Leader label
-    node.filter(d => d.isLeader)
-        .append('text')
-        .attr('text-anchor', 'middle')
-        .attr('dy', d => getRadius(d) + 18)
-        .attr('font-size', '12px')
-        .attr('font-weight', '600')
-        .attr('font-family', 'Inter, sans-serif')
-        .attr('fill', '#1e293b')
-        .text('LEADER');
+    // Leader label (market title inside node)
+    const leaderLabel = node.filter(d => d.isLeader);
+    leaderLabel.each(function(d) {
+        const r = getRadius(d);
+        const boxW = r * 1.4;
+        d3.select(this).append('foreignObject')
+            .attr('x', -boxW / 2)
+            .attr('y', -r * 0.6)
+            .attr('width', boxW)
+            .attr('height', r * 1.2)
+            .append('xhtml:div')
+            .style('font-size', '8px')
+            .style('font-weight', '600')
+            .style('font-family', 'Inter, sans-serif')
+            .style('color', '#fff')
+            .style('text-align', 'center')
+            .style('line-height', '1.2')
+            .style('overflow', 'hidden')
+            .style('display', '-webkit-box')
+            .style('-webkit-line-clamp', '3')
+            .style('-webkit-box-orient', 'vertical')
+            .text(d.name);
+    });
 
     // Follower labels (market name, truncated)
     node.filter(d => !d.isLeader)
