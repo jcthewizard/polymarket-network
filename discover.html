@@ -178,17 +178,14 @@
         </div>
     </div>
 
-    <!-- Discovery Log Sidebar (shown alongside graph) -->
+    <!-- Discovery Sidebar (shown alongside graph) -->
     <div id="discovery-sidebar"
-        class="fixed top-36 left-4 z-30 w-80 max-h-[calc(100vh-10rem)] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-lg transition-all duration-300 translate-x-[-120%] pointer-events-auto overflow-hidden">
-        <!-- Header -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-            <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <h3 class="text-sm font-semibold text-slate-700">Discovery Log</h3>
+        class="fixed top-36 left-4 z-30 w-80 max-h-[calc(100vh-10rem)] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-lg transition-all duration-300 translate-x-[-120%] pointer-events-auto overflow-hidden flex flex-col">
+        <!-- Header with tabs -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
+            <div class="flex items-center gap-1">
+                <button id="sidebar-tab-list" class="px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-800 text-white transition-colors">Followers</button>
+                <button id="sidebar-tab-log" class="px-2.5 py-1 text-xs font-semibold rounded-md text-slate-500 hover:bg-slate-100 transition-colors">Log</button>
             </div>
             <button id="toggle-sidebar-btn" class="text-slate-400 hover:text-slate-600 transition-colors p-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -197,8 +194,11 @@
                 </svg>
             </button>
         </div>
-        <!-- Steps content -->
-        <div id="sidebar-steps" class="p-4 space-y-3 overflow-y-auto max-h-[calc(100vh-14rem)]">
+        <!-- Follower list content -->
+        <div id="sidebar-list" class="overflow-y-auto flex-1">
+        </div>
+        <!-- Steps content (hidden by default) -->
+        <div id="sidebar-steps" class="p-4 space-y-3 overflow-y-auto flex-1 hidden">
         </div>
     </div>
 

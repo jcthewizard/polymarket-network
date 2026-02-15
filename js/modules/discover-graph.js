@@ -1,6 +1,6 @@
 /**
- * Discover Graph: Star-layout D3 force graph with leader in center
- * and follower markets radiating outward.
+ * Discover Graph: Tiered ring D3 force graph with leader in center
+ * and follower markets in confidence-based rings.
  */
 
 // Tooltip helpers (inline to avoid import issues with different page)
@@ -48,17 +48,44 @@ function hideTooltip() {
 
 
 /**
- * Initialize the discover star graph.
+ * Initialize the discover star graph with tiered rings.
  * @param {Object} data - { leader: {...}, followers: [...] }
  * @param {HTMLElement} container - DOM element to render into
  * @param {Function} onEdgeClick - callback(followerData) when edge is clicked
  * @param {Function} [colorScale] - optional d3 ordinal color scale for categories
+ * @returns {Object} graph API with highlightNode(id)/clearHighlight()
  */
 export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     const width = window.innerWidth;
     const height = window.innerHeight;
     const centerX = width / 2;
     const centerY = height / 2;
+
+    // Build a confidence lookup: marketId → confidence
+    const confidenceMap = {};
+    data.followers.forEach(f => {
+        confidenceMap[f.market.id] = f.confidence_score;
+    });
+
+    // Tier thresholds and ring distances
+    const n = data.followers.length;
+    const baseRadius = Math.max(180, n * 20);
+    const tierConfig = {
+        high:   { min: 0.7, radius: baseRadius * 0.5 },   // inner ring
+        medium: { min: 0.4, radius: baseRadius * 0.85 },   // middle ring
+        low:    { min: 0.0, radius: baseRadius * 1.2 },     // outer ring
+    };
+
+    function getTier(confidence) {
+        if (confidence >= tierConfig.high.min) return 'high';
+        if (confidence >= tierConfig.medium.min) return 'medium';
+        return 'low';
+    }
+
+    function getTierRadius(confidence) {
+        const tier = getTier(confidence);
+        return tierConfig[tier].radius;
+    }
 
     // Build nodes array
     const leaderNode = {
@@ -68,17 +95,18 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         volume: data.leader.volume,
         probability: data.leader.probability,
         isLeader: true,
-        fx: centerX,  // Pin leader to center
+        fx: centerX,
         fy: centerY,
     };
 
-    const followerNodes = data.followers.map((f, i) => ({
+    const followerNodes = data.followers.map((f) => ({
         id: f.market.id,
         name: f.market.name,
         category: f.market.category,
         volume: f.market.volume,
         probability: f.market.probability,
         isLeader: false,
+        confidence: f.confidence_score,
     }));
 
     const nodes = [leaderNode, ...followerNodes];
@@ -92,7 +120,7 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         _followerData: f,
     }));
 
-    // Color scale (use provided scale for consistent colors across filter changes)
+    // Color scale
     const categoryColor = colorScale || (() => {
         const categories = Array.from(new Set(nodes.map(n => n.category))).sort();
         return d3.scaleOrdinal().domain(categories).range(d3.schemeTableau10);
@@ -103,7 +131,6 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     const minVol = Math.min(...volumes);
     const maxVol = Math.max(...volumes);
     const radiusScale = d3.scaleSqrt().domain([minVol, maxVol]).range([18, 55]);
-    // Leader radius scales with title length so full text fits
     const leaderBaseRadius = Math.max(50, Math.min(80, 30 + data.leader.name.length * 0.5));
     const getRadius = (d) => d.isLeader ? leaderBaseRadius : radiusScale(d.volume);
 
@@ -124,29 +151,39 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .on('zoom', (event) => g.attr('transform', event.transform));
     svg.call(zoom);
 
-    // Scale layout based on follower count so nodes aren't cramped
-    const n = followerNodes.length;
-    const targetRadius = Math.max(250, n * 35);
-    const linkDist = Math.max(200, targetRadius * 0.8);
+    // Force simulation with tiered radial forces
     const chargeStr = -Math.max(400, n * 30);
 
-    // Force simulation
     const simulation = d3.forceSimulation(nodes)
         .velocityDecay(0.5)
         .force('link', d3.forceLink(links)
             .id(d => d.id)
-            .distance(linkDist)
+            .distance(d => getTierRadius(d.confidence || 0.5))
         )
         .force('charge', d3.forceManyBody().strength(chargeStr))
         .force('collide', d3.forceCollide().radius(d => getRadius(d) + 20).iterations(3))
-        // Radial force pushes followers outward from center
+        // Per-node radial force based on confidence tier
         .force('radial', d3.forceRadial(
-            targetRadius,
+            d => d.isLeader ? 0 : getTierRadius(d.confidence || 0.5),
             centerX,
             centerY
-        ).strength(d => d.isLeader ? 0 : 0.3));
+        ).strength(d => d.isLeader ? 0 : 0.4));
 
     // --- Render ---
+
+    // Tier ring guides (subtle dashed circles)
+    const ringGroup = g.append('g').attr('class', 'tier-rings');
+    [tierConfig.high, tierConfig.medium, tierConfig.low].forEach((tier, i) => {
+        ringGroup.append('circle')
+            .attr('cx', centerX)
+            .attr('cy', centerY)
+            .attr('r', tier.radius)
+            .attr('fill', 'none')
+            .attr('stroke', '#e2e8f0')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', '4,4')
+            .attr('opacity', 0.5);
+    });
 
     // Links
     const linkGroup = g.append('g');
@@ -169,7 +206,7 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .data(links)
         .join('line')
         .attr('class', 'visible')
-        .attr('stroke-opacity', 0.7)
+        .attr('stroke-opacity', 0.5)
         .attr('stroke-width', d => Math.max(1.5, d.confidence * 5))
         .attr('stroke', d => d.is_same_outcome ? '#64748b' : '#f97316')
         .style('pointer-events', 'none');
@@ -193,6 +230,7 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     const node = nodeGroup.selectAll('g')
         .data(nodes)
         .join('g')
+        .attr('class', d => `node-group node-${d.id}`)
         .style('cursor', 'pointer')
         .call(drag(simulation));
 
@@ -204,7 +242,7 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .attr('stroke-width', d => d.isLeader ? 3 : 2)
         .attr('stroke-opacity', 0.8);
 
-    // Leader label (market title inside node — sized to fit full text)
+    // Leader label (market title inside node)
     const leaderLabel = node.filter(d => d.isLeader);
     leaderLabel.each(function(d) {
         const r = getRadius(d);
@@ -283,6 +321,28 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         const h = window.innerHeight;
         svg.attr('width', w).attr('height', h).attr('viewBox', [0, 0, w, h]);
     });
+
+    // --- Highlight API ---
+    function highlightNode(marketId) {
+        // Dim everything
+        node.transition().duration(200)
+            .style('opacity', d => d.id === marketId || d.isLeader ? 1 : 0.15);
+        linkVisible.transition().duration(200)
+            .style('opacity', d => d.target.id === marketId || d.target === marketId ? 1 : 0.08);
+        linkHitArea
+            .style('opacity', d => d.target.id === marketId || d.target === marketId ? 1 : 0.08);
+        linkLabels.transition().duration(200)
+            .style('opacity', d => d.target.id === marketId || d.target === marketId ? 1 : 0);
+    }
+
+    function clearHighlight() {
+        node.transition().duration(200).style('opacity', 1);
+        linkVisible.transition().duration(200).style('opacity', 1);
+        linkHitArea.style('opacity', 1);
+        linkLabels.transition().duration(200).style('opacity', 1);
+    }
+
+    return { highlightNode, clearHighlight };
 }
 
 
@@ -326,7 +386,7 @@ function fitToView(svg, zoom, nodes, width, height) {
 
 function drag(simulation) {
     function dragstarted(event, d) {
-        if (d.isLeader) return; // Don't drag the leader
+        if (d.isLeader) return;
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
@@ -350,5 +410,3 @@ function drag(simulation) {
         .on('drag', dragged)
         .on('end', dragended);
 }
-
-

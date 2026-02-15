@@ -7,6 +7,7 @@ let discoverResults = null;
 let activeCategories = new Set();
 let minConfidence = 0;
 let categoryColorScale = null;
+let graphApi = null; // { highlightNode, clearHighlight } returned by initDiscoverGraph
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Load market list for autocomplete
@@ -124,6 +125,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('toggle-sidebar-btn').addEventListener('click', collapseSidebar);
     document.getElementById('expand-sidebar-btn').addEventListener('click', expandSidebar);
 
+    // Sidebar tab switching
+    document.getElementById('sidebar-tab-list').addEventListener('click', () => switchSidebarTab('list'));
+    document.getElementById('sidebar-tab-log').addEventListener('click', () => switchSidebarTab('log'));
+
     // Escape key closes modal
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -178,6 +183,9 @@ function showSidebar() {
     // Clone progress steps into sidebar
     sidebarSteps.innerHTML = progressBody.innerHTML;
 
+    // Default to Followers tab
+    switchSidebarTab('list');
+
     // Slide in
     sidebar.classList.remove('translate-x-[-120%]');
     sidebar.classList.add('translate-x-0');
@@ -204,6 +212,76 @@ function expandSidebar() {
     sidebar.classList.remove('translate-x-[-120%]');
     sidebar.classList.add('translate-x-0');
     document.getElementById('expand-sidebar-btn').classList.add('hidden');
+}
+
+// ─── Sidebar Tabs & Follower List ────────────────────────────
+
+function switchSidebarTab(tab) {
+    const listTab = document.getElementById('sidebar-tab-list');
+    const logTab = document.getElementById('sidebar-tab-log');
+    const listContent = document.getElementById('sidebar-list');
+    const stepsContent = document.getElementById('sidebar-steps');
+
+    if (tab === 'list') {
+        listTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-800 text-white transition-colors';
+        logTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md text-slate-500 hover:bg-slate-100 transition-colors';
+        listContent.classList.remove('hidden');
+        stepsContent.classList.add('hidden');
+    } else {
+        logTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-800 text-white transition-colors';
+        listTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md text-slate-500 hover:bg-slate-100 transition-colors';
+        stepsContent.classList.remove('hidden');
+        listContent.classList.add('hidden');
+    }
+}
+
+function buildFollowerList() {
+    const container = document.getElementById('sidebar-list');
+    container.innerHTML = '';
+
+    if (!discoverResults?.followers?.length) {
+        container.innerHTML = '<p class="text-sm text-slate-400 p-4">No followers found.</p>';
+        return;
+    }
+
+    // Sort by confidence descending
+    const sorted = [...discoverResults.followers].sort((a, b) => b.confidence_score - a.confidence_score);
+
+    sorted.forEach(f => {
+        const conf = Math.round(f.confidence_score * 100);
+        const tier = f.confidence_score >= 0.7 ? 'high' : f.confidence_score >= 0.4 ? 'med' : 'low';
+        const confColor = tier === 'high' ? 'bg-green-100 text-green-700' : tier === 'med' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700';
+        const outcomeLabel = f.is_same_outcome ? 'Same' : 'Opposite';
+        const outcomeColor = f.is_same_outcome ? 'text-slate-500' : 'text-orange-500';
+
+        const row = document.createElement('div');
+        row.className = 'px-4 py-3 border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors';
+        row.dataset.marketId = f.market.id;
+        row.innerHTML = `
+            <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-slate-800 leading-tight flex-1">${f.market.name}</p>
+                <span class="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${confColor}">${conf}%</span>
+            </div>
+            <div class="flex items-center gap-2 mt-1.5">
+                <span class="text-[10px] ${outcomeColor} font-medium">${outcomeLabel}</span>
+                <span class="text-[10px] text-slate-400">${f.market.category || 'Other'}</span>
+                <span class="text-[10px] text-slate-400">$${(f.market.volume / 1000000).toFixed(1)}M</span>
+            </div>`;
+
+        // Hover → highlight node on graph
+        row.addEventListener('mouseenter', () => {
+            if (graphApi) graphApi.highlightNode(f.market.id);
+        });
+        row.addEventListener('mouseleave', () => {
+            if (graphApi) graphApi.clearHighlight();
+        });
+        // Click → open relationship modal
+        row.addEventListener('click', () => {
+            openRelationshipModal(f, discoverResults.leader);
+        });
+
+        container.appendChild(row);
+    });
 }
 
 // ─── Session Restore ─────────────────────────────────────────
@@ -241,10 +319,11 @@ function restoreFromSession() {
 
     initDiscoverFilters();
 
-    initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
+    graphApi = initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
         openRelationshipModal(edgeData, discoverResults.leader);
     }, categoryColorScale);
 
+    buildFollowerList();
     console.log('Discover: Restored previous results from session');
 }
 
@@ -417,9 +496,11 @@ function renderFilteredGraph() {
     const vizContainer = document.getElementById('discover-viz');
     vizContainer.innerHTML = '';
 
-    initDiscoverGraph(filtered, vizContainer, (edgeData) => {
+    graphApi = initDiscoverGraph(filtered, vizContainer, (edgeData) => {
         openRelationshipModal(edgeData, discoverResults.leader);
     }, categoryColorScale);
+
+    buildFollowerList();
 }
 
 // ─── Stream-based Discover ──────────────────────────────────
@@ -527,9 +608,11 @@ async function runDiscover(marketId, marketName) {
 
         initDiscoverFilters();
 
-        initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
+        graphApi = initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
             openRelationshipModal(edgeData, discoverResults.leader);
         }, categoryColorScale);
+
+        buildFollowerList();
 
     } catch (err) {
         console.error('Discover error:', err);
