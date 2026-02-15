@@ -52,8 +52,9 @@ function hideTooltip() {
  * @param {Object} data - { leader: {...}, followers: [...] }
  * @param {HTMLElement} container - DOM element to render into
  * @param {Function} onEdgeClick - callback(followerData) when edge is clicked
+ * @param {Function} [colorScale] - optional d3 ordinal color scale for categories
  */
-export function initDiscoverGraph(data, container, onEdgeClick) {
+export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     const width = window.innerWidth;
     const height = window.innerHeight;
     const centerX = width / 2;
@@ -91,9 +92,11 @@ export function initDiscoverGraph(data, container, onEdgeClick) {
         _followerData: f,
     }));
 
-    // Color scale
-    const categories = Array.from(new Set(nodes.map(n => n.category))).sort();
-    const categoryColor = d3.scaleOrdinal().domain(categories).range(d3.schemeTableau10);
+    // Color scale (use provided scale for consistent colors across filter changes)
+    const categoryColor = colorScale || (() => {
+        const categories = Array.from(new Set(nodes.map(n => n.category))).sort();
+        return d3.scaleOrdinal().domain(categories).range(d3.schemeTableau10);
+    })();
 
     // Size scale
     const volumes = nodes.map(n => n.volume);

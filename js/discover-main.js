@@ -6,6 +6,7 @@ let selectedMarket = null;
 let discoverResults = null;
 let activeCategories = new Set();
 let minConfidence = 0;
+let categoryColorScale = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Load market list for autocomplete
@@ -236,11 +237,11 @@ function restoreFromSession() {
     vizContainer.classList.remove('hidden');
     vizContainer.innerHTML = '';
 
+    initDiscoverFilters();
+
     initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
         openRelationshipModal(edgeData, discoverResults.leader);
-    });
-
-    initDiscoverFilters();
+    }, categoryColorScale);
 
     console.log('Discover: Restored previous results from session');
 }
@@ -343,7 +344,8 @@ function initDiscoverFilters() {
 
     activeCategories = new Set(categories);
 
-    const colorScale = d3.scaleOrdinal().domain(categories).range(d3.schemeTableau10);
+    categoryColorScale = d3.scaleOrdinal().domain(categories).range(d3.schemeTableau10);
+    const colorScale = categoryColorScale;
     const container = document.getElementById('discover-category-filters');
     container.innerHTML = '';
 
@@ -409,7 +411,7 @@ function renderFilteredGraph() {
 
     initDiscoverGraph(filtered, vizContainer, (edgeData) => {
         openRelationshipModal(edgeData, discoverResults.leader);
-    });
+    }, categoryColorScale);
 }
 
 // ─── Stream-based Discover ──────────────────────────────────
@@ -515,11 +517,11 @@ async function runDiscover(marketId, marketName) {
 
         document.getElementById('new-search-btn').classList.remove('hidden');
 
+        initDiscoverFilters();
+
         initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
             openRelationshipModal(edgeData, discoverResults.leader);
-        });
-
-        initDiscoverFilters();
+        }, categoryColorScale);
 
     } catch (err) {
         console.error('Discover error:', err);
