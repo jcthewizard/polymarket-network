@@ -154,26 +154,33 @@ def _discover_relationships(leader_question: str, candidate_questions: List[str]
         },
         {
             "role": "user",
-            "content": f"""Given a "leader" market, identify which of the candidate markets below are "followers" — meaning their outcomes are causally or logically connected to the leader market's outcome.
+            "content": f"""Given a "leader" market, identify which of the candidate markets below are "followers" — meaning the LEADER market's outcome causally influences or determines the follower's outcome.
 
 Leader Market: "{leader_question}"
 
 Candidate Markets:
 {market_list}
 
-IMPORTANT: Look beyond obvious keyword overlap. The most valuable discoveries are markets that use COMPLETELY DIFFERENT words but are connected through real-world causal chains. For example:
-- "Will the Fed raise rates?" → "Will housing starts decline?" (monetary policy → construction economics)
-- "Will Trump win the election?" → "Will the Paris Climate Agreement survive?" (political change → policy reversal)
-- "Will Bitcoin hit $100k?" → "Will El Salvador's GDP grow?" (crypto price → nation-state Bitcoin holdings)
+CRITICAL — DIRECTIONALITY MATTERS:
+The causal arrow must flow FROM the leader TO the follower. The leader's outcome must influence, cause, or determine the follower's outcome — NOT the other way around.
+
+- CORRECT: Leader "Will Trump win?" → Follower "Will the Paris Climate Agreement survive?" (Trump winning CAUSES policy changes that affect the agreement)
+- WRONG: Leader "Will Bitcoin hit $100k?" → Follower "Will the US strike Iran?" (A US strike might affect Bitcoin, but Bitcoin price does NOT cause military strikes — the causal direction is reversed)
+
+If a candidate market's outcome would influence the leader but NOT vice versa, do NOT include it as a follower.
+
+Look beyond obvious keyword overlap. The most valuable discoveries are markets that use COMPLETELY DIFFERENT words but are connected through real-world causal chains where the leader drives the follower. For example:
+- "Will the Fed raise rates?" → "Will housing starts decline?" (rate hikes CAUSE higher mortgage costs → fewer housing starts)
+- "Will Bitcoin hit $100k?" → "Will El Salvador's GDP grow?" (Bitcoin price DRIVES nation-state holdings value → GDP impact)
 
 For each follower, provide:
 - question: The exact text of the follower market question as given above
 - confidence_score: 0.0-1.0 (use higher scores for direct relationships, lower for indirect but still meaningful ones)
 - is_same_outcome: true if outcomes tend to match (both YES or both NO), false if opposite
 - relationship_type: "direct" (obvious, first-order) or "indirect" (second/third-order, non-obvious)
-- rationale: Explain the causal chain, especially for indirect relationships. What is the mechanism?
+- rationale: Explain the causal chain FROM the leader TO the follower. What is the mechanism by which the leader's outcome influences the follower?
 
-Include BOTH direct and indirect relationships. Don't limit yourself to obvious matches — dig for the non-obvious connections that a knowledgeable trader would recognize.
+Include BOTH direct and indirect relationships. Don't limit yourself to obvious matches — dig for the non-obvious connections that a knowledgeable trader would recognize. But always verify the causal direction flows from leader to follower.
 
 Return JSON:
 {{"followers": [

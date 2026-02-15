@@ -103,7 +103,9 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     const minVol = Math.min(...volumes);
     const maxVol = Math.max(...volumes);
     const radiusScale = d3.scaleSqrt().domain([minVol, maxVol]).range([18, 55]);
-    const getRadius = (d) => d.isLeader ? Math.max(radiusScale(d.volume), 40) : radiusScale(d.volume);
+    // Leader radius scales with title length so full text fits
+    const leaderBaseRadius = Math.max(50, Math.min(80, 30 + data.leader.name.length * 0.5));
+    const getRadius = (d) => d.isLeader ? leaderBaseRadius : radiusScale(d.volume);
 
     // SVG
     const svg = d3.select(container).append('svg')
@@ -202,36 +204,32 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .attr('stroke-width', d => d.isLeader ? 3 : 2)
         .attr('stroke-opacity', 0.8);
 
-    // Leader static ring
-    node.filter(d => d.isLeader)
-        .append('circle')
-        .attr('r', d => getRadius(d) + 6)
-        .attr('fill', 'none')
-        .attr('stroke', '#3b82f6')
-        .attr('stroke-width', 2)
-        .attr('stroke-opacity', 0.3);
-
-    // Leader label (market title inside node)
+    // Leader label (market title inside node — sized to fit full text)
     const leaderLabel = node.filter(d => d.isLeader);
     leaderLabel.each(function(d) {
         const r = getRadius(d);
-        const boxW = r * 1.4;
+        const boxW = r * 1.6;
+        const boxH = r * 1.6;
         d3.select(this).append('foreignObject')
             .attr('x', -boxW / 2)
-            .attr('y', -r * 0.6)
+            .attr('y', -boxH / 2)
             .attr('width', boxW)
-            .attr('height', r * 1.2)
+            .attr('height', boxH)
             .append('xhtml:div')
-            .style('font-size', '8px')
+            .style('width', '100%')
+            .style('height', '100%')
+            .style('display', 'flex')
+            .style('align-items', 'center')
+            .style('justify-content', 'center')
+            .style('font-size', '9px')
             .style('font-weight', '600')
             .style('font-family', 'Inter, sans-serif')
             .style('color', '#fff')
             .style('text-align', 'center')
-            .style('line-height', '1.2')
-            .style('overflow', 'hidden')
-            .style('display', '-webkit-box')
-            .style('-webkit-line-clamp', '3')
-            .style('-webkit-box-orient', 'vertical')
+            .style('line-height', '1.25')
+            .style('padding', '4px')
+            .style('overflow-wrap', 'break-word')
+            .style('word-break', 'break-word')
             .text(d.name);
     });
 
