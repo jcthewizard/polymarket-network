@@ -7,6 +7,7 @@ Streams progress events so the frontend can show a live log.
 """
 
 import json
+import time
 import urllib.request
 import urllib.error
 from difflib import SequenceMatcher
@@ -33,8 +34,11 @@ def _fuzzy_match(text: str, candidates: List[str], threshold: float = FUZZY_MATC
     return None
 
 
-def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout: int = 180) -> Dict:
-    """Make an OpenAI chat completion call and return parsed JSON response."""
+def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout: int = 180, on_retry=None) -> Dict:
+    """Make an OpenAI chat completion call and return parsed JSON response.
+    Retries up to 3 times with backoff on rate limit (429) errors.
+    on_retry(attempt, max_retries, wait_seconds) is called before each retry."""
+    max_retries = 3
     payload = {
         "model": model,
         "messages": messages,
@@ -42,23 +46,30 @@ def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout:
         "response_format": {"type": "json_object"},
     }
 
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {openai_api_key}",
-        },
-    )
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {openai_api_key}",
+            },
+        )
 
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            content = result["choices"][0]["message"]["content"]
-            return json.loads(content)
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"OpenAI API {e.code}: {body}") from e
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                content = result["choices"][0]["message"]["content"]
+                return json.loads(content)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            if e.code == 429 and attempt < max_retries - 1:
+                wait = 10 * (attempt + 1)  # 10s, 20s
+                if on_retry:
+                    on_retry(attempt + 1, max_retries, wait)
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"OpenAI API {e.code}: {body}") from e
 
 
 def _get_active_categories(candidates: List[Dict]) -> List[str]:
@@ -71,7 +82,7 @@ def _get_active_categories(candidates: List[Dict]) -> List[str]:
     return sorted(categories)
 
 
-def _prefilter_categories(leader_question: str, available_categories: List[str], openai_api_key: str) -> Dict:
+def _prefilter_categories(leader_question: str, available_categories: List[str], openai_api_key: str, on_retry=None) -> Dict:
     """
     Pass 1: Use GPT-5 to deeply reason about which market categories could be
     causally or logically affected by the leader market.
@@ -114,7 +125,7 @@ Return JSON: {{"categories": [...], "reasoning": "..."}}"""
         }
     ]
 
-    data = _call_openai(messages, LLM_MODEL, openai_api_key, timeout=120)
+    data = _call_openai(messages, LLM_MODEL, openai_api_key, timeout=120, on_retry=on_retry)
 
     # Validate: only keep categories that actually exist in our list
     returned_categories = data.get("categories", [])
@@ -123,7 +134,7 @@ Return JSON: {{"categories": [...], "reasoning": "..."}}"""
     return {"categories": valid_categories, "reasoning": data.get("reasoning", "")}
 
 
-def _discover_relationships(leader_question: str, candidate_questions: List[str], openai_api_key: str) -> List[Dict]:
+def _discover_relationships(leader_question: str, candidate_questions: List[str], openai_api_key: str, on_retry=None) -> List[Dict]:
     """
     Pass 2: Use GPT-5 to discover leader→follower relationships
     among the category-filtered candidates.
@@ -173,7 +184,7 @@ Return JSON:
         }
     ]
 
-    data = _call_openai(messages, LLM_MODEL, openai_api_key, timeout=120)
+    data = _call_openai(messages, LLM_MODEL, openai_api_key, timeout=120, on_retry=on_retry)
     return data.get("followers", [])
 
 
@@ -234,11 +245,20 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
     # 4. Pass 1: Category reasoning
     yield {"type": "step", "message": "Pass 1: Identifying relevant categories"}
 
+    retry_events = []
+    def on_retry(attempt, max_retries, wait):
+        retry_events.append({"type": "step", "message": f"Rate limit hit, retrying ({attempt}/{max_retries}) in {wait}s..."})
+
     try:
-        prefilter_result = _prefilter_categories(leader["name"], available_categories, openai_api_key)
+        prefilter_result = _prefilter_categories(leader["name"], available_categories, openai_api_key, on_retry=on_retry)
+        for evt in retry_events:
+            yield evt
+        retry_events.clear()
         relevant_categories = prefilter_result["categories"]
         reasoning = prefilter_result["reasoning"]
     except Exception as e:
+        for evt in retry_events:
+            yield evt
         yield {"type": "error", "message": f"Pass 1 failed: {str(e)}"}
         return
 
@@ -290,14 +310,19 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
 
         yield {"type": "step", "message": f"Batch {batch_num}/{total_batches}: Analyzing {len(batch)} candidates"}
 
+        retry_events.clear()
         try:
-            batch_results = _discover_relationships(leader["name"], batch, openai_api_key)
+            batch_results = _discover_relationships(leader["name"], batch, openai_api_key, on_retry=on_retry)
+            for evt in retry_events:
+                yield evt
+            retry_events.clear()
             raw_followers.extend(batch_results)
+            yield {"type": "result", "message": f"Batch {batch_num}/{total_batches}: found {len(batch_results)} followers"}
         except Exception as e:
-            yield {"type": "error", "message": f"Batch {batch_num}/{total_batches} failed: {str(e)}"}
-            return
-
-        yield {"type": "result", "message": f"Batch {batch_num}/{total_batches}: found {len(batch_results)} followers"}
+            for evt in retry_events:
+                yield evt
+            retry_events.clear()
+            yield {"type": "result", "message": f"Batch {batch_num}/{total_batches}: skipped ({str(e)[:80]})"}
 
     if not raw_followers:
         yield {"type": "result", "message": f"No potential followers identified across {total_batches} batches"}
