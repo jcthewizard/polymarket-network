@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
             searchResults.innerHTML = filtered.map(m => `
                 <div class="discover-result-item px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0" data-id="${m.id}">
-                    <p class="text-sm text-slate-800 font-medium truncate">${m.name}</p>
+                    <p class="text-sm text-slate-800 font-medium">${m.name}</p>
                     <p class="text-xs text-slate-400 mt-0.5">${m.category || 'Other'} &bull; $${(m.volume / 1000000).toFixed(1)}M &bull; ${(m.probability * 100).toFixed(0)}%</p>
                 </div>
             `).join('');

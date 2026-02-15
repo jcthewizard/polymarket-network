@@ -11,7 +11,6 @@ import json
 import os
 import sys
 import threading
-import time
 from datetime import datetime
 
 import database as db
@@ -61,6 +60,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def handle_get_data(self):
         """Return complete cached dataset for client."""
+        check_and_refresh()
         import random
         try:
             data = db.get_all_data()
@@ -103,6 +103,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def handle_get_markets(self):
         """Return just the markets."""
+        check_and_refresh()
         try:
             markets = db.get_all_markets()
             self.send_json_response(markets)
@@ -315,59 +316,55 @@ Respond with ONLY the category name, nothing else."""
             print(f"Proxy Exception: {e}")
 
 
-def start_background_worker():
-    """Start the data worker in a background thread."""
-    import data_worker
-    from datetime import datetime
-    
-    def worker_loop():
-        refresh_interval = int(os.environ.get("REFRESH_INTERVAL", 600))
-        print(f"[Worker] Starting background refresh every {refresh_interval} seconds")
-        
-        # Check if data is stale or missing
-        last_refresh = db.get_metadata('last_refresh')
-        needs_refresh = False
-        
-        if not last_refresh:
-            print("[Worker] Database empty, running initial refresh...")
-            needs_refresh = True
-        else:
-            # Check if last refresh is older than the interval
-            try:
-                last_time = datetime.fromisoformat(last_refresh)
-                age_seconds = (datetime.now() - last_time).total_seconds()
-                if age_seconds > refresh_interval:
-                    print(f"[Worker] Data is {int(age_seconds)}s old (> {refresh_interval}s), refreshing...")
-                    needs_refresh = True
-                else:
-                    print(f"[Worker] Data is {int(age_seconds)}s old, still fresh. Next refresh in {int(refresh_interval - age_seconds)}s")
-            except Exception as e:
-                print(f"[Worker] Error checking data age: {e}")
-                needs_refresh = True
-        
-        if needs_refresh:
+REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", 600))
+_refresh_lock = threading.Lock()
+_refresh_in_progress = False
+
+
+def check_and_refresh():
+    """Check if data is stale and trigger a background refresh if needed.
+    Called on user requests — no refresh happens if nobody visits the site."""
+    global _refresh_in_progress
+
+    if _refresh_in_progress:
+        return
+
+    last_refresh = db.get_metadata('last_refresh')
+    if last_refresh:
+        try:
+            last_time = datetime.fromisoformat(last_refresh)
+            age_seconds = (datetime.now() - last_time).total_seconds()
+            if age_seconds <= REFRESH_INTERVAL:
+                return  # Data is still fresh
+            print(f"[Worker] Data is {int(age_seconds)}s old (> {REFRESH_INTERVAL}s), refreshing...")
+        except Exception:
+            pass  # Can't parse — refresh to be safe
+    else:
+        print("[Worker] No data yet, running initial refresh...")
+
+    with _refresh_lock:
+        if _refresh_in_progress:
+            return
+        _refresh_in_progress = True
+
+    def do_refresh():
+        global _refresh_in_progress
+        try:
+            import data_worker
             data_worker.refresh_data()
-        
-        while True:
-            time.sleep(refresh_interval)
-            try:
-                data_worker.refresh_data()
-            except Exception as e:
-                print(f"[Worker] Error during refresh: {e}")
-    
-    thread = threading.Thread(target=worker_loop, daemon=True)
-    thread.start()
-    return thread
+        except Exception as e:
+            print(f"[Worker] Error during refresh: {e}")
+        finally:
+            _refresh_in_progress = False
+
+    threading.Thread(target=do_refresh, daemon=True).start()
 
 
 if __name__ == '__main__':
     # Initialize database
     db.init_db()
-    
-    # Start background worker
-    start_background_worker()
-    
-    # Start HTTP server
+
+    # Start HTTP server (data refreshes on-demand when users visit)
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), ProxyHTTPRequestHandler) as httpd:
         print(f"Serving at http://localhost:{PORT}")
