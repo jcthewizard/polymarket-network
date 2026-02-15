@@ -304,7 +304,7 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
     yield {"type": "result", "message": f"Active categories: {', '.join(available_categories)}", "data": {"categories": available_categories}}
 
     # 4. Pass 1: Category reasoning
-    yield {"type": "step", "message": "Pass 1: Reasoning about relevant categories"}
+    yield {"type": "step", "message": "Pass 1: Identifying relevant categories"}
 
     try:
         prefilter_result = _prefilter_categories(leader["name"], available_categories, openai_api_key)
