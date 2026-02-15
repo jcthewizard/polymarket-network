@@ -156,6 +156,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_classify()
         elif self.path == '/api/refresh':
             self.handle_manual_refresh()
+        elif self.path == '/api/discover':
+            self.handle_discover()
         else:
             self.send_error(404, "Not found")
 
@@ -219,10 +221,56 @@ Respond with ONLY the category name, nothing else."""
             # Import and run refresh in background
             import data_worker
             threading.Thread(target=data_worker.refresh_data, daemon=True).start()
-            
+
             self.send_json_response({'status': 'refresh_started'})
         except Exception as e:
             self.send_error_response(500, str(e))
+
+    def handle_discover(self):
+        """Stream discover progress as NDJSON events."""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            market_id = data.get('market_id', '')
+            min_volume = int(data.get('min_volume', 50000))
+
+            if not market_id:
+                self.send_error_response(400, 'market_id is required')
+                return
+
+            if not OPENAI_API_KEY:
+                self.send_error_response(500, 'OPENAI_API_KEY not configured')
+                return
+
+            # Stream NDJSON
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/x-ndjson')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+
+            import discover_worker
+            import importlib
+            importlib.reload(discover_worker)
+            for event in discover_worker.find_followers_stream(market_id, OPENAI_API_KEY, min_volume):
+                line = json.dumps(event) + '\n'
+                self.wfile.write(line.encode('utf-8'))
+                self.wfile.flush()
+
+        except Exception as e:
+            print(f"Discover error: {e}")
+            import traceback
+            traceback.print_exc()
+            # If headers already sent, we can't send an error response,
+            # but try to send an error event
+            try:
+                error_event = json.dumps({"type": "error", "message": str(e)}) + '\n'
+                self.wfile.write(error_event.encode('utf-8'))
+                self.wfile.flush()
+            except Exception:
+                pass
 
     def do_OPTIONS(self):
         """Handle CORS preflight"""

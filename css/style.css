@@ -147,6 +147,51 @@ body {
     }
 }
 
+/* ========== DISCOVER PAGE STYLES ========== */
+
+#discover-viz {
+    width: 100vw;
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 0;
+}
+
+/* Pulse ring animation for leader node */
+@keyframes pulse-ring {
+    0% { stroke-opacity: 0.3; r: attr(r); }
+    50% { stroke-opacity: 0.1; }
+    100% { stroke-opacity: 0.3; }
+}
+
+/* Discovery progress log */
+@keyframes step-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.step-pulse {
+    animation: step-pulse 1.2s ease-in-out infinite;
+}
+
+/* Discover search panel autocomplete */
+#discover-results .discover-result-item:hover {
+    background-color: #f8fafc;
+}
+
+/* Relationship modal responsive */
+@media (max-width: 768px) {
+    #relationship-modal .modal-content {
+        max-width: calc(100% - 2rem) !important;
+        margin: 1rem;
+    }
+
+    #relationship-modal .grid-cols-2 {
+        grid-template-columns: 1fr !important;
+    }
+}
+
 /* Small mobile (< 480px) */
 @media (max-width: 480px) {
     .ui-layer {
