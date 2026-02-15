@@ -71,9 +71,9 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     const n = data.followers.length;
     const baseRadius = Math.max(180, n * 20);
     const tierConfig = {
-        high:   { min: 0.7, radius: baseRadius * 0.7 },    // inner ring
-        medium: { min: 0.4, radius: baseRadius * 1.1 },    // middle ring
-        low:    { min: 0.0, radius: baseRadius * 1.5 },    // outer ring
+        high:   { min: 0.7, radius: baseRadius * 1.0 },    // inner ring
+        medium: { min: 0.4, radius: baseRadius * 1.5 },    // middle ring
+        low:    { min: 0.0, radius: baseRadius * 2.0 },    // outer ring
     };
 
     function getTier(confidence) {
