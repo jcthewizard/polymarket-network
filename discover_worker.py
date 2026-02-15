@@ -116,9 +116,9 @@ Think step by step:
 
 IMPORTANT — Be selective and precise:
 - Only include a category if you can articulate a clear, specific causal mechanism from this market to that category.
-- Do NOT include categories with only vague, tenuous, or highly speculative connections.
+- Do NOT include categories wih only vague, tenuous, or highly speculative connections.
 - A good filter selects 3-6 categories, not all of them. If you're selecting more than 6, you're not being selective enough.
-- "Other" should only be included if there's a genuine reason, not by default.
+- "Other" should always be included in your list.
 
 You MUST only select from the categories listed above. Do not invent new categories.
 
@@ -173,7 +173,7 @@ RULES — Apply these strictly:
 
 2. STRENGTH: Only include followers where the leader's outcome would cause a NOTABLE shift in the follower's probability (roughly >5%). Vague, speculative, or "everything is connected" reasoning is not sufficient.
 
-3. SELECTIVITY: From {len(candidate_questions)} candidates, you should typically find 0-8 genuine followers. Most candidates will NOT be followers. It is perfectly fine to return an empty list if no strong connections exist. Do NOT pad the list with weak relationships.
+3. SELECTIVITY: From {len(candidate_questions)} candidates, you should typically find 0-15 genuine followers. Most candidates will NOT be followers. It is perfectly fine to return an empty list if no strong connections exist. Do NOT pad the list with weak relationships.
 
 4. CONFIDENCE SCORES: Be honest with scores. Reserve 0.8+ for direct, obvious causal links. Most indirect relationships should be 0.4-0.7. If you'd score something below 0.3, don't include it at all.
 
@@ -182,7 +182,7 @@ For each follower, provide:
 - confidence_score: 0.0-1.0
 - is_same_outcome: true if outcomes tend to move together, false if opposite
 - relationship_type: "direct" or "indirect"
-- rationale: The specific causal mechanism from leader to follower (1-2 sentences)
+- rationale: The specific causal mechanism from leader to follower (1-3 sentences)
 
 Return JSON:
 {{"followers": [
