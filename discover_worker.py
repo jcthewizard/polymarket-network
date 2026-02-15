@@ -150,47 +150,43 @@ def _discover_relationships(leader_question: str, candidate_questions: List[str]
         {
             "role": "system",
             "content": (
-                "You are an expert analyst who specializes in finding hidden connections "
-                "between prediction markets. You excel at identifying non-obvious, second-order "
-                "and third-order relationships that require deep domain knowledge — not just "
-                "surface-level keyword matching. You think like a sophisticated trader who "
-                "understands how events cascade across domains."
+                "You are a precise analyst of prediction markets. You identify only strong, "
+                "meaningful causal relationships — not speculative or tenuous ones. "
+                "Quality over quantity: a short list of strong connections is far more valuable "
+                "than a long list of weak ones."
             )
         },
         {
             "role": "user",
-            "content": f"""Given a "leader" market, identify which of the candidate markets below are "followers" — meaning the LEADER market's outcome causally influences or determines the follower's outcome.
+            "content": f"""Given a "leader" market, identify which of the candidate markets below are true "followers" — meaning the leader's outcome would MEANINGFULLY change the probability of the follower.
 
 Leader Market: "{leader_question}"
 
 Candidate Markets:
 {market_list}
 
-CRITICAL — DIRECTIONALITY MATTERS:
-The causal arrow must flow FROM the leader TO the follower. The leader's outcome must influence, cause, or determine the follower's outcome — NOT the other way around.
+RULES — Apply these strictly:
 
-- CORRECT: Leader "Will Trump win?" → Follower "Will the Paris Climate Agreement survive?" (Trump winning CAUSES policy changes that affect the agreement)
-- WRONG: Leader "Will Bitcoin hit $100k?" → Follower "Will the US strike Iran?" (A US strike might affect Bitcoin, but Bitcoin price does NOT cause military strikes — the causal direction is reversed)
+1. DIRECTIONALITY: The causal arrow must flow FROM the leader TO the follower. If a candidate influences the leader but not vice versa, exclude it.
+   - CORRECT: Leader "Will Trump win?" → Follower "Will the Paris Climate Agreement survive?"
+   - WRONG: Leader "Will Bitcoin hit $100k?" → Follower "Will the US strike Iran?"
 
-If a candidate market's outcome would influence the leader but NOT vice versa, do NOT include it as a follower.
+2. STRENGTH: Only include followers where the leader's outcome would cause a NOTABLE shift in the follower's probability (roughly >5%). Vague, speculative, or "everything is connected" reasoning is not sufficient.
 
-Look beyond obvious keyword overlap. The most valuable discoveries are markets that use COMPLETELY DIFFERENT words but are connected through real-world causal chains where the leader drives the follower. For example:
-- "Will the Fed raise rates?" → "Will housing starts decline?" (rate hikes CAUSE higher mortgage costs → fewer housing starts)
-- "Will Bitcoin hit $100k?" → "Will El Salvador's GDP grow?" (Bitcoin price DRIVES nation-state holdings value → GDP impact)
+3. SELECTIVITY: From {len(candidate_questions)} candidates, you should typically find 0-8 genuine followers. Most candidates will NOT be followers. It is perfectly fine to return an empty list if no strong connections exist. Do NOT pad the list with weak relationships.
+
+4. CONFIDENCE SCORES: Be honest with scores. Reserve 0.8+ for direct, obvious causal links. Most indirect relationships should be 0.4-0.7. If you'd score something below 0.3, don't include it at all.
 
 For each follower, provide:
 - question: The exact text of the follower market question as given above
-- confidence_score: 0.0-1.0 (use higher scores for direct relationships, lower for indirect but still meaningful ones)
-- is_same_outcome: true if outcomes tend to match (both YES or both NO), false if opposite
-- relationship_type: "direct" (obvious, first-order) or "indirect" (second/third-order, non-obvious)
-- rationale: Explain the causal chain FROM the leader TO the follower. What is the mechanism by which the leader's outcome influences the follower?
-
-Include BOTH direct and indirect relationships. Don't limit yourself to obvious matches — dig for the non-obvious connections that a knowledgeable trader would recognize. But always verify the causal direction flows from leader to follower.
+- confidence_score: 0.0-1.0
+- is_same_outcome: true if outcomes tend to move together, false if opposite
+- relationship_type: "direct" or "indirect"
+- rationale: The specific causal mechanism from leader to follower (1-2 sentences)
 
 Return JSON:
 {{"followers": [
     {{"question": "...", "confidence_score": 0.85, "is_same_outcome": true, "relationship_type": "direct", "rationale": "..."}},
-    {{"question": "...", "confidence_score": 0.5, "is_same_outcome": false, "relationship_type": "indirect", "rationale": "..."}},
     ...
 ]}}"""
         }
