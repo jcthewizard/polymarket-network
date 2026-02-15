@@ -235,7 +235,7 @@ Respond with ONLY the category name, nothing else."""
             data = json.loads(post_data.decode('utf-8'))
 
             market_id = data.get('market_id', '')
-            min_volume = int(data.get('min_volume', 50000))
+            min_volume = int(data.get('min_volume', 10000))
 
             if not market_id:
                 self.send_error_response(400, 'market_id is required')
@@ -365,8 +365,9 @@ if __name__ == '__main__':
     db.init_db()
 
     # Start HTTP server (data refreshes on-demand when users visit)
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), ProxyHTTPRequestHandler) as httpd:
+    server = socketserver.ThreadingTCPServer(("", PORT), ProxyHTTPRequestHandler)
+    server.allow_reuse_address = True
+    with server as httpd:
         print(f"Serving at http://localhost:{PORT}")
         print(f"REST API available at /api/data, /api/data/status")
         try:

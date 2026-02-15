@@ -268,14 +268,16 @@ function logStep(message) {
     // Add connector line between steps
     if (body.children.length > 0) {
         const connector = document.createElement('div');
-        connector.className = 'ml-[9px] h-3 w-0.5 rounded-full bg-slate-200';
+        connector.className = 'ml-[9px] h-3 w-0.5 bg-slate-200';
+        connector.style.marginTop = '-2px';
+        connector.style.marginBottom = '-2px';
         body.appendChild(connector);
     }
 
     const row = document.createElement('div');
     row.className = 'flex items-start gap-3';
     row.innerHTML = `
-        <div class="step-icon mt-0.5 w-5 h-5 flex-shrink-0 rounded-full border-2 border-blue-400 flex items-center justify-center">
+        <div class="step-icon w-5 h-5 flex-shrink-0 rounded-full border-2 border-blue-400 flex items-center justify-center">
             <div class="w-2 h-2 rounded-full bg-blue-400 step-pulse"></div>
         </div>
         <div class="flex-1 min-w-0">
@@ -291,7 +293,7 @@ function logStep(message) {
 function resolveStep(stepEl, detail) {
     if (stepEl) {
         const icon = stepEl.querySelector('.step-icon');
-        icon.className = 'mt-0.5 w-5 h-5 flex-shrink-0 rounded-full bg-green-100 flex items-center justify-center';
+        icon.className = 'w-5 h-5 flex-shrink-0 rounded-full bg-green-100 flex items-center justify-center';
         icon.innerHTML = `<svg class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>`;
     }
     if (detail && stepEl) {
@@ -305,7 +307,7 @@ function resolveStep(stepEl, detail) {
 function logError(message, stepEl) {
     if (stepEl) {
         const icon = stepEl.querySelector('.step-icon');
-        icon.className = 'mt-0.5 w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center';
+        icon.className = 'w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center';
         icon.innerHTML = `<svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>`;
         const detailEl = stepEl.querySelector('.step-detail');
         detailEl.textContent = message;

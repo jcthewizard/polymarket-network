@@ -119,18 +119,24 @@ export function initDiscoverGraph(data, container, onEdgeClick) {
         .on('zoom', (event) => g.attr('transform', event.transform));
     svg.call(zoom);
 
+    // Scale layout based on follower count so nodes aren't cramped
+    const n = followerNodes.length;
+    const targetRadius = Math.max(250, n * 35);
+    const linkDist = Math.max(200, targetRadius * 0.8);
+    const chargeStr = -Math.max(400, n * 30);
+
     // Force simulation
     const simulation = d3.forceSimulation(nodes)
         .velocityDecay(0.5)
         .force('link', d3.forceLink(links)
             .id(d => d.id)
-            .distance(200)
+            .distance(linkDist)
         )
-        .force('charge', d3.forceManyBody().strength(-400))
-        .force('collide', d3.forceCollide().radius(d => getRadius(d) + 10).iterations(3))
+        .force('charge', d3.forceManyBody().strength(chargeStr))
+        .force('collide', d3.forceCollide().radius(d => getRadius(d) + 20).iterations(3))
         // Radial force pushes followers outward from center
         .force('radial', d3.forceRadial(
-            250,  // target radius
+            targetRadius,
             centerX,
             centerY
         ).strength(d => d.isLeader ? 0 : 0.3));
