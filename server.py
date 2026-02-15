@@ -230,7 +230,11 @@ Respond with ONLY the category name, nothing else."""
             self.send_error_response(500, str(e))
 
     def handle_discover(self):
-        """Stream discover progress as NDJSON events."""
+        """Stream discover progress as NDJSON events.
+        Runs the worker in a background thread and sends keepalive pings
+        every 15s to prevent Fly.io / browser from closing idle connections."""
+        import queue as _queue
+
         try:
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
@@ -254,10 +258,40 @@ Respond with ONLY the category name, nothing else."""
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.end_headers()
 
-            import discover_worker
-            import importlib
-            importlib.reload(discover_worker)
-            for event in discover_worker.find_followers_stream(market_id, OPENAI_API_KEY, min_volume):
+            # Use a queue so we can send keepalive pings while the worker blocks on API calls
+            eq = _queue.Queue()
+            _SENTINEL = object()
+
+            def _run_worker():
+                try:
+                    import discover_worker
+                    import importlib
+                    importlib.reload(discover_worker)
+                    for event in discover_worker.find_followers_stream(market_id, OPENAI_API_KEY, min_volume):
+                        eq.put(event)
+                except Exception as exc:
+                    eq.put({"type": "error", "message": str(exc)})
+                finally:
+                    eq.put(_SENTINEL)
+
+            worker_thread = threading.Thread(target=_run_worker, daemon=True)
+            worker_thread.start()
+
+            KEEPALIVE_INTERVAL = 15  # seconds
+
+            while True:
+                try:
+                    event = eq.get(timeout=KEEPALIVE_INTERVAL)
+                except _queue.Empty:
+                    # No event for 15s — send a keepalive ping to keep the connection alive
+                    keepalive = json.dumps({"type": "keepalive"}) + '\n'
+                    self.wfile.write(keepalive.encode('utf-8'))
+                    self.wfile.flush()
+                    continue
+
+                if event is _SENTINEL:
+                    break
+
                 line = json.dumps(event) + '\n'
                 self.wfile.write(line.encode('utf-8'))
                 self.wfile.flush()
@@ -266,8 +300,6 @@ Respond with ONLY the category name, nothing else."""
             print(f"Discover error: {e}")
             import traceback
             traceback.print_exc()
-            # If headers already sent, we can't send an error response,
-            # but try to send an error event
             try:
                 error_event = json.dumps({"type": "error", "message": str(e)}) + '\n'
                 self.wfile.write(error_event.encode('utf-8'))
