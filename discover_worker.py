@@ -103,7 +103,7 @@ def _prefilter_categories(leader_question: str, available_categories: List[str],
         },
         {
             "role": "user",
-            "content": f"""Given this prediction market, I need you to think deeply about which categories of other markets could be causally or logically affected by its outcome.
+            "content": f"""Given this prediction market, identify which categories of other markets could be DIRECTLY and MEANINGFULLY affected by its outcome.
 
 Market: "{leader_question}"
 
@@ -111,14 +111,19 @@ The available market categories are: [{categories_str}]
 
 Think step by step:
 1. What is this market fundamentally about?
-2. What are the direct, obvious domains it affects?
-3. What are the indirect, second-order effects? (e.g., a Bitcoin ETF approval could affect not just Crypto markets but also Finance regulation, Tech adoption, and even Geopolitics if nation-states hold Bitcoin)
-4. What are the subtle, third-order effects that require real-world knowledge? (e.g., a specific politician's known positions, a country's economic dependencies, industry interconnections)
+2. What are the 2-4 categories most directly affected by this market's outcome?
+3. Are there any additional categories with strong, concrete causal links (not vague, speculative ones)?
+
+IMPORTANT — Be selective and precise:
+- Only include a category if you can articulate a clear, specific causal mechanism from this market to that category.
+- Do NOT include categories with only vague, tenuous, or highly speculative connections.
+- A good filter selects 3-6 categories, not all of them. If you're selecting more than 6, you're not being selective enough.
+- "Other" should only be included if there's a genuine reason, not by default.
 
 You MUST only select from the categories listed above. Do not invent new categories.
 
 Return a JSON object with:
-- "categories": An array of categories from the list above that could be affected. Include any category where even indirect causal links are plausible. Be comprehensive — it's better to cast a wide net than to miss a non-obvious connection. ALWAYS include "Other" in your list — markets categorized as "Other" can contain unexpected cross-domain relationships.
+- "categories": An array of the most relevant categories (typically 3-6).
 - "reasoning": A brief explanation of your thinking, especially for the less obvious connections.
 
 Return JSON: {{"categories": [...], "reasoning": "..."}}"""
@@ -269,12 +274,10 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
         yield {"type": "error", "message": f"Pass 1 failed: {str(e)}"}
         return
 
-    # Always include leader's category and "Other"
+    # Always include leader's own category
     leader_category = leader.get("category", "")
     if leader_category and leader_category not in relevant_categories:
         relevant_categories.append(leader_category)
-    if "Other" in available_categories and "Other" not in relevant_categories:
-        relevant_categories.append("Other")
 
     yield {
         "type": "result",
