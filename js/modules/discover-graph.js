@@ -62,8 +62,8 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
 
     const n = data.followers.length;
 
-    // Spread radius scales with follower count — nodes fill the space naturally
-    const spreadRadius = Math.max(250, n * 25);
+    // Spread radius scales with follower count — keep cluster tight around leader
+    const spreadRadius = Math.max(150, n * 12);
 
     // Build nodes array
     const leaderNode = {
@@ -128,22 +128,22 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
     svg.call(zoom);
 
     // Force simulation — smooth spread, no rigid rings
-    const chargeStr = -Math.max(600, n * 40);
+    const chargeStr = -Math.max(300, n * 20);
 
     const simulation = d3.forceSimulation(nodes)
         .velocityDecay(0.5)
         .force('link', d3.forceLink(links)
             .id(d => d.id)
-            .distance(spreadRadius * 0.6)
+            .distance(spreadRadius * 0.5)
         )
         .force('charge', d3.forceManyBody().strength(chargeStr))
-        .force('collide', d3.forceCollide().radius(d => getRadius(d) + 12).iterations(3))
-        // Gentle radial push to keep nodes from piling up on one side
+        .force('collide', d3.forceCollide().radius(d => getRadius(d) + 8).iterations(3))
+        // Pull followers toward the leader to form a tight cluster
         .force('radial', d3.forceRadial(
-            spreadRadius * 0.7,
+            spreadRadius * 0.6,
             centerX,
             centerY
-        ).strength(d => d.isLeader ? 0 : 0.15));
+        ).strength(d => d.isLeader ? 0 : 0.3));
 
     // --- Render (edges FIRST so nodes draw on top) ---
 
@@ -192,28 +192,34 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .attr('stroke-opacity', 0.8);
 
     // Title text inside ALL nodes (leader + followers) via foreignObject
+    // Uses an outer flex div for centering + inner div for line clamping
     node.each(function(d) {
         const r = getRadius(d);
         const boxW = r * 1.6;
         const boxH = r * 1.6;
-        d3.select(this).append('foreignObject')
+        const fo = d3.select(this).append('foreignObject')
             .attr('x', -boxW / 2)
             .attr('y', -boxH / 2)
             .attr('width', boxW)
-            .attr('height', boxH)
-            .append('xhtml:div')
+            .attr('height', boxH);
+
+        // Outer div: flex centering
+        const outer = fo.append('xhtml:div')
             .style('width', '100%')
             .style('height', '100%')
             .style('display', 'flex')
             .style('align-items', 'center')
             .style('justify-content', 'center')
+            .style('padding', '4px');
+
+        // Inner div: text with line clamping
+        outer.append('xhtml:div')
             .style('font-size', d.isLeader ? '9px' : '7px')
             .style('font-weight', d.isLeader ? '600' : '500')
             .style('font-family', 'Inter, sans-serif')
             .style('color', '#fff')
             .style('text-align', 'center')
             .style('line-height', '1.2')
-            .style('padding', '4px')
             .style('overflow', 'hidden')
             .style('display', '-webkit-box')
             .style('-webkit-line-clamp', d.isLeader ? '4' : '3')
