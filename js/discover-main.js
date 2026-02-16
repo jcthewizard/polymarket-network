@@ -159,6 +159,8 @@ function showProgress() {
     document.getElementById('search-form').classList.add('hidden');
     const progressBody = document.getElementById('progress-body');
     progressBody.innerHTML = '';
+    // Clear any residual inline styles from old code
+    progressBody.removeAttribute('style');
     document.getElementById('progress-log').classList.remove('hidden');
     document.getElementById('panel-wrapper').classList.remove('max-w-lg');
     document.getElementById('panel-wrapper').classList.add('max-w-xl');
@@ -172,6 +174,21 @@ function hideProgress() {
     document.getElementById('panel-wrapper').classList.add('max-w-lg');
 }
 
+/** Strip old progress-line divs and inline style hacks from cloned step HTML. */
+function cleanupStepsHtml(container) {
+    const line = container.querySelector('#progress-line');
+    if (line) line.remove();
+    // Remove residual margin-left on step icons from old code
+    container.querySelectorAll('.step-icon').forEach(icon => {
+        icon.style.marginLeft = '';
+        icon.style.zIndex = '';
+    });
+    // Remove residual positioning on step rows
+    container.querySelectorAll('[style*="position"]').forEach(el => {
+        el.style.position = '';
+    });
+}
+
 // ─── Sidebar Helpers ─────────────────────────────────────────
 
 function showSidebar() {
@@ -179,8 +196,9 @@ function showSidebar() {
     const sidebarSteps = document.getElementById('sidebar-steps');
     const progressBody = document.getElementById('progress-body');
 
-    // Clone progress steps into sidebar
+    // Clone progress steps into sidebar, then clean up old artifacts
     sidebarSteps.innerHTML = progressBody.innerHTML;
+    cleanupStepsHtml(sidebarSteps);
 
     // Default to Followers tab
     switchSidebarTab('list');
@@ -302,7 +320,9 @@ function restoreFromSession() {
     // Restore sidebar steps if available
     const savedSteps = sessionStorage.getItem('discoverSteps');
     if (savedSteps) {
-        document.getElementById('sidebar-steps').innerHTML = savedSteps;
+        const stepsEl = document.getElementById('sidebar-steps');
+        stepsEl.innerHTML = savedSteps;
+        cleanupStepsHtml(stepsEl);
         const sidebar = document.getElementById('discovery-sidebar');
         sidebar.classList.remove('translate-x-[-120%]');
         sidebar.classList.add('translate-x-0');
