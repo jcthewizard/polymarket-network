@@ -62,8 +62,8 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
 
     const n = data.followers.length;
 
-    // Spread radius scales with follower count — keep cluster tight around leader
-    const spreadRadius = Math.max(150, n * 12);
+    // Spread radius scales with follower count — tight cluster around leader
+    const spreadRadius = Math.max(120, n * 8);
 
     // Build nodes array
     const leaderNode = {
@@ -127,23 +127,26 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
         .on('zoom', (event) => g.attr('transform', event.transform));
     svg.call(zoom);
 
-    // Force simulation — smooth spread, no rigid rings
-    const chargeStr = -Math.max(300, n * 20);
+    // Follower data lookup for node click
+    const followerDataById = new Map(data.followers.map(f => [f.market.id, f]));
+
+    // Force simulation — tight cluster around leader
+    const chargeStr = -Math.max(200, n * 12);
 
     const simulation = d3.forceSimulation(nodes)
         .velocityDecay(0.5)
         .force('link', d3.forceLink(links)
             .id(d => d.id)
-            .distance(spreadRadius * 0.5)
+            .distance(spreadRadius * 0.35)
         )
         .force('charge', d3.forceManyBody().strength(chargeStr))
-        .force('collide', d3.forceCollide().radius(d => getRadius(d) + 8).iterations(3))
-        // Pull followers toward the leader to form a tight cluster
+        .force('collide', d3.forceCollide().radius(d => getRadius(d) + 6).iterations(3))
+        // Strong pull toward leader to form a tight cluster
         .force('radial', d3.forceRadial(
-            spreadRadius * 0.6,
+            spreadRadius * 0.45,
             centerX,
             centerY
-        ).strength(d => d.isLeader ? 0 : 0.3));
+        ).strength(d => d.isLeader ? 0 : 0.5));
 
     // --- Render (edges FIRST so nodes draw on top) ---
 
@@ -227,6 +230,14 @@ export function initDiscoverGraph(data, container, onEdgeClick, colorScale) {
             .style('overflow-wrap', 'break-word')
             .style('word-break', 'break-word')
             .text(d.name);
+    });
+
+    // Click on follower nodes → same as clicking the edge
+    node.on('click', (event, d) => {
+        if (d.isLeader) return;
+        event.stopPropagation();
+        const followerData = followerDataById.get(d.id);
+        if (followerData && onEdgeClick) onEdgeClick(followerData);
     });
 
     // Tooltips
