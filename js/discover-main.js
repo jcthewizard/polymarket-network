@@ -159,7 +159,6 @@ function showProgress() {
     document.getElementById('search-form').classList.add('hidden');
     const progressBody = document.getElementById('progress-body');
     progressBody.innerHTML = '';
-    delete progressBody.dataset.lineInit;
     document.getElementById('progress-log').classList.remove('hidden');
     document.getElementById('panel-wrapper').classList.remove('max-w-lg');
     document.getElementById('panel-wrapper').classList.add('max-w-xl');
@@ -347,22 +346,10 @@ function showRetryButton() {
 function logStep(message) {
     const body = document.getElementById('progress-body');
 
-    // Ensure body has relative positioning for the continuous connector line
-    if (!body.dataset.lineInit) {
-        body.style.position = 'relative';
-        body.style.paddingLeft = '20px'; // room for icon column
-        const line = document.createElement('div');
-        line.id = 'progress-line';
-        line.style.cssText = 'position:absolute;left:9px;top:10px;bottom:0;width:2px;background:#e2e8f0;';
-        body.appendChild(line);
-        body.dataset.lineInit = '1';
-    }
-
     const row = document.createElement('div');
-    row.className = 'flex items-start gap-3 py-1';
-    row.style.position = 'relative';
+    row.className = 'flex items-start gap-3 py-1.5';
     row.innerHTML = `
-        <div class="step-icon w-5 h-5 flex-shrink-0 rounded-full border-2 border-blue-400 flex items-center justify-center bg-white" style="margin-left:-20px;z-index:1;">
+        <div class="step-icon w-5 h-5 flex-shrink-0 rounded-full border-2 border-blue-400 flex items-center justify-center bg-white">
             <div class="w-2 h-2 rounded-full bg-blue-400 step-pulse"></div>
         </div>
         <div class="flex-1 min-w-0">
@@ -378,8 +365,7 @@ function logStep(message) {
 function resolveStep(stepEl, detail) {
     if (stepEl) {
         const icon = stepEl.querySelector('.step-icon');
-        icon.className = 'w-5 h-5 flex-shrink-0 rounded-full bg-green-100 flex items-center justify-center';
-        icon.style.zIndex = '1';
+        icon.className = 'step-icon w-5 h-5 flex-shrink-0 rounded-full bg-green-100 flex items-center justify-center';
         icon.innerHTML = `<svg class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>`;
     }
     if (detail && stepEl) {
@@ -393,8 +379,7 @@ function resolveStep(stepEl, detail) {
 function logError(message, stepEl) {
     if (stepEl) {
         const icon = stepEl.querySelector('.step-icon');
-        icon.className = 'w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center';
-        icon.style.zIndex = '1';
+        icon.className = 'step-icon w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center';
         icon.innerHTML = `<svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>`;
         const detailEl = stepEl.querySelector('.step-detail');
         detailEl.textContent = message;
@@ -403,10 +388,9 @@ function logError(message, stepEl) {
     } else {
         const body = document.getElementById('progress-body');
         const row = document.createElement('div');
-        row.className = 'flex items-start gap-3 py-1';
-        row.style.position = 'relative';
+        row.className = 'flex items-start gap-3 py-1.5';
         row.innerHTML = `
-            <div class="w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center" style="margin-left:-20px;z-index:1;">
+            <div class="w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center">
                 <svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>
             </div>
             <p class="text-sm text-red-600">${message}</p>`;
