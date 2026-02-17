@@ -14,8 +14,88 @@ import threading
 from datetime import datetime
 
 import database as db
+from urllib.parse import urlparse, parse_qs
 
 PORT = 8000
+
+# ── Resolved markets cache (for backtest search) ──────────────
+_resolved_markets_cache = None
+_resolved_markets_cache_time = 0
+RESOLVED_CACHE_TTL = 600  # 10 minutes
+
+
+def _fetch_resolved_markets():
+    """Fetch resolved markets from Gamma API with pagination."""
+    all_markets = []
+    offset = 0
+    limit = 500
+    max_markets = 2000  # Cap to avoid excessive fetching
+
+    while len(all_markets) < max_markets:
+        url = f"https://gamma-api.polymarket.com/markets?closed=true&limit={limit}&offset={offset}"
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                markets = json.loads(response.read().decode('utf-8'))
+                if not markets:
+                    break
+                all_markets.extend(markets)
+                if len(markets) < limit:
+                    break
+                offset += limit
+                import time as _time
+                _time.sleep(0.2)
+        except Exception as e:
+            print(f"Error fetching resolved markets at offset {offset}: {e}")
+            break
+
+    # Filter to markets that resolved to Yes
+    # Only include markets from 2023+ (CLOB launched late 2022, older markets have no price history)
+    resolved_yes = []
+    for m in all_markets:
+        try:
+            prices = json.loads(m.get('outcomePrices', '[]'))
+            clob_ids = json.loads(m.get('clobTokenIds', '[]'))
+            volume = float(m.get('volume', 0) or 0)
+            end_date = m.get('endDate', '') or ''
+
+            # Skip old markets without CLOB data
+            if end_date and end_date < '2023-01-01':
+                continue
+
+            # Resolved to Yes: first outcome price ~1.0
+            if prices and float(prices[0]) > 0.95 and clob_ids and volume >= 10000:
+                resolved_yes.append({
+                    'id': m['id'],
+                    'question': m.get('question', ''),
+                    'slug': m.get('slug', ''),
+                    'volume': volume,
+                    'clobTokenIds': clob_ids,
+                    'endDate': end_date,
+                })
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+    # Sort by endDate descending (most recent first)
+    resolved_yes.sort(key=lambda x: x.get('endDate', ''), reverse=True)
+
+    print(f"[Backtest] Cached {len(resolved_yes)} resolved-to-Yes markets (from {len(all_markets)} closed)")
+    return resolved_yes
+
+
+def _get_resolved_markets_cache():
+    """Get resolved markets with caching."""
+    global _resolved_markets_cache, _resolved_markets_cache_time
+    import time as _time
+    now = _time.time()
+    if _resolved_markets_cache is not None and (now - _resolved_markets_cache_time) < RESOLVED_CACHE_TTL:
+        return _resolved_markets_cache
+    _resolved_markets_cache = _fetch_resolved_markets()
+    _resolved_markets_cache_time = now
+    return _resolved_markets_cache
 
 # Load .env file if it exists
 def load_dotenv():
@@ -45,6 +125,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_get_correlations()
         elif self.path == '/api/data/status':
             self.handle_get_status()
+        elif self.path.startswith('/api/backtest/search'):
+            self.handle_backtest_search()
         # Legacy proxy endpoints (keep for backward compatibility during transition)
         elif self.path.startswith('/api/gamma/'):
             target_path = self.path[len('/api/gamma/'):]
@@ -161,6 +243,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_manual_refresh()
         elif self.path == '/api/discover':
             self.handle_discover()
+        elif self.path == '/api/backtest':
+            self.handle_backtest()
         else:
             self.send_error(404, "Not found")
 
@@ -298,6 +382,110 @@ Respond with ONLY the category name, nothing else."""
 
         except Exception as e:
             print(f"Discover error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                error_event = json.dumps({"type": "error", "message": str(e)}) + '\n'
+                self.wfile.write(error_event.encode('utf-8'))
+                self.wfile.flush()
+            except Exception:
+                pass
+
+    def handle_backtest_search(self):
+        """Search for resolved markets from Gamma API (cached)."""
+        try:
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            query = params.get('q', [''])[0].lower().strip()
+
+            if len(query) < 2:
+                self.send_json_response([])
+                return
+
+            resolved_markets = _get_resolved_markets_cache()
+
+            results = [
+                m for m in resolved_markets
+                if query in m['question'].lower()
+            ][:20]
+
+            self.send_json_response(results)
+
+        except Exception as e:
+            print(f"Backtest search error: {e}")
+            self.send_error_response(500, str(e))
+
+    def handle_backtest(self):
+        """Stream backtest progress as NDJSON events."""
+        import queue as _queue
+
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            market_id = data.get('market_id', '')
+            market_question = data.get('market_question', '')
+            clob_token_id = data.get('clob_token_id', '')
+            holding_period = data.get('holding_period', '1d')
+            threshold = float(data.get('threshold', 0.95))
+
+            if not market_id or not clob_token_id:
+                self.send_error_response(400, 'market_id and clob_token_id are required')
+                return
+
+            if not OPENAI_API_KEY:
+                self.send_error_response(500, 'OPENAI_API_KEY not configured')
+                return
+
+            # Stream NDJSON
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/x-ndjson')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+
+            eq = _queue.Queue()
+            _SENTINEL = object()
+
+            def _run_worker():
+                try:
+                    import backtest_worker
+                    import importlib
+                    importlib.reload(backtest_worker)
+                    for event in backtest_worker.run_backtest_stream(
+                        market_id, market_question, clob_token_id,
+                        holding_period, threshold, OPENAI_API_KEY,
+                    ):
+                        eq.put(event)
+                except Exception as exc:
+                    eq.put({"type": "error", "message": str(exc)})
+                finally:
+                    eq.put(_SENTINEL)
+
+            worker_thread = threading.Thread(target=_run_worker, daemon=True)
+            worker_thread.start()
+
+            KEEPALIVE_INTERVAL = 15
+
+            while True:
+                try:
+                    event = eq.get(timeout=KEEPALIVE_INTERVAL)
+                except _queue.Empty:
+                    keepalive = json.dumps({"type": "keepalive"}) + '\n'
+                    self.wfile.write(keepalive.encode('utf-8'))
+                    self.wfile.flush()
+                    continue
+
+                if event is _SENTINEL:
+                    break
+
+                line = json.dumps(event) + '\n'
+                self.wfile.write(line.encode('utf-8'))
+                self.wfile.flush()
+
+        except Exception as e:
+            print(f"Backtest error: {e}")
             import traceback
             traceback.print_exc()
             try:

@@ -192,6 +192,56 @@ body {
     }
 }
 
+/* ========== BACKTEST PAGE STYLES ========== */
+
+/* P&L colors */
+.pnl-positive { color: #16a34a; }
+.pnl-negative { color: #dc2626; }
+
+.pnl-hero-positive {
+    color: #16a34a;
+    text-shadow: 0 0 20px rgba(22, 163, 74, 0.15);
+}
+.pnl-hero-negative {
+    color: #dc2626;
+    text-shadow: 0 0 20px rgba(220, 38, 38, 0.15);
+}
+
+/* Trade row hover */
+.trade-row:hover { background-color: #f8fafc; }
+
+/* Holding period pill buttons */
+.holding-pill { transition: all 0.15s ease; }
+
+/* Backtest search autocomplete */
+#search-results .search-result-item:hover {
+    background-color: #f8fafc;
+}
+
+/* Backtest results page scrolls */
+#results-container {
+    overflow-y: auto;
+    height: 100vh;
+}
+
+/* Responsive backtest results */
+@media (max-width: 768px) {
+    .backtest-results-table {
+        font-size: 0.75rem;
+    }
+    .backtest-results-table th,
+    .backtest-results-table td {
+        padding: 0.5rem 0.75rem;
+    }
+    #rationale-modal .modal-content {
+        max-width: calc(100% - 2rem) !important;
+        margin: 1rem;
+    }
+    #rationale-modal .grid-cols-3 {
+        grid-template-columns: 1fr !important;
+    }
+}
+
 /* Small mobile (< 480px) */
 @media (max-width: 480px) {
     .ui-layer {
