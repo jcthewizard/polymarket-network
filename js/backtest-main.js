@@ -1,13 +1,12 @@
 // State
 let selectedMarket = null;
-let holdingPeriod = '1d';
-let threshold = 0.95;
 let backtestResults = null;
 let searchDebounceTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    const searchInput = document.getElementById('backtest-search');
-    const searchResults = document.getElementById('search-results');
+    const dateInput = document.getElementById('backtest-date');
+    const marketListContainer = document.getElementById('market-list-container');
+    const marketList = document.getElementById('market-list');
     const selectedMarketEl = document.getElementById('selected-market');
     const selectedMarketName = document.getElementById('selected-market-name');
     const selectedMarketMeta = document.getElementById('selected-market-meta');
@@ -15,51 +14,52 @@ document.addEventListener('DOMContentLoaded', () => {
     const backtestBtn = document.getElementById('backtest-btn');
     const newBacktestBtn = document.getElementById('new-backtest-btn');
 
-    // ── Search autocomplete (debounced API calls) ──────────────
-    searchInput.addEventListener('input', (e) => {
-        const query = e.target.value.trim();
+    // Set default date to a good test date
+    dateInput.value = '2024-11-05';
 
-        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-
-        if (query.length < 2) {
-            searchResults.classList.add('hidden');
-            searchResults.innerHTML = '';
+    // ── Date picker change → fetch markets ──────────────────────
+    dateInput.addEventListener('change', async (e) => {
+        const date = e.target.value;
+        if (!date) {
+            marketListContainer.classList.add('hidden');
             return;
         }
 
-        searchDebounceTimer = setTimeout(async () => {
-            try {
-                const response = await fetch(`/api/backtest/search?q=${encodeURIComponent(query)}`);
-                const markets = await response.json();
+        marketList.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">Loading...</div>';
+        marketListContainer.classList.remove('hidden');
+        clearSelection();
 
-                if (markets.length === 0) {
-                    searchResults.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">No resolved markets found</div>';
-                } else {
-                    searchResults.innerHTML = markets.map(m => {
-                        const endLabel = m.endDate ? m.endDate.slice(0, 10) : '';
-                        return `
-                        <div class="search-result-item px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0"
-                             data-id="${m.id}"
-                             data-question="${escapeAttr(m.question)}"
-                             data-volume="${m.volume}"
-                             data-clob='${JSON.stringify(m.clobTokenIds)}'
-                             data-end="${m.endDate || ''}">
-                            <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.question)}</p>
-                            <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${endLabel ? ` \u2022 Resolved ${endLabel}` : ''}</p>
-                        </div>`;
-                    }).join('');
-                }
+        try {
+            const response = await fetch(`/api/backtest/search?date=${encodeURIComponent(date)}`);
+            const markets = await response.json();
 
-                searchResults.classList.remove('hidden');
-            } catch (err) {
-                console.error('Search error:', err);
+            if (markets.length === 0) {
+                marketList.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">No resolved markets found for this date</div>';
+            } else {
+                marketList.innerHTML = markets.map(m => {
+                    const endLabel = m.endDate ? m.endDate.slice(0, 10) : '';
+                    return `
+                    <div class="market-item px-4 py-3 hover:bg-white cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
+                         data-id="${m.id}"
+                         data-question="${escapeAttr(m.question)}"
+                         data-volume="${m.volume}"
+                         data-clob='${JSON.stringify(m.clobTokenIds)}'
+                         data-end="${m.endDate || ''}"
+                         data-start="${m.startDate || ''}">
+                        <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.question)}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${endLabel ? ` \u2022 Resolved ${endLabel}` : ''}</p>
+                    </div>`;
+                }).join('');
             }
-        }, 300);
+        } catch (err) {
+            console.error('Date search error:', err);
+            marketList.innerHTML = '<div class="px-4 py-3 text-sm text-red-500">Error loading markets</div>';
+        }
     });
 
-    // Handle search result click
-    searchResults.addEventListener('click', (e) => {
-        const item = e.target.closest('.search-result-item');
+    // Handle market item click
+    marketList.addEventListener('click', (e) => {
+        const item = e.target.closest('.market-item');
         if (!item) return;
 
         const market = {
@@ -68,26 +68,18 @@ document.addEventListener('DOMContentLoaded', () => {
             volume: parseFloat(item.dataset.volume),
             clobTokenIds: JSON.parse(item.dataset.clob),
             endDate: item.dataset.end,
+            startDate: item.dataset.start,
         };
 
         selectMarket(market);
     });
 
-    // Close search results when clicking outside
-    document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
-            searchResults.classList.add('hidden');
-        }
-    });
-
     function selectMarket(market) {
         selectedMarket = market;
-        searchInput.value = '';
-        searchResults.classList.add('hidden');
-        searchInput.classList.add('hidden');
+        marketListContainer.classList.add('hidden');
 
         selectedMarketName.textContent = market.question;
-        selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved Yes`;
+        selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved ${(market.endDate || '').slice(0, 10)}`;
         selectedMarketEl.classList.remove('hidden');
         backtestBtn.disabled = false;
     }
@@ -95,32 +87,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function clearSelection() {
         selectedMarket = null;
         selectedMarketEl.classList.add('hidden');
-        searchInput.classList.remove('hidden');
-        searchInput.value = '';
-        searchInput.focus();
         backtestBtn.disabled = true;
     }
 
-    clearSelectionBtn.addEventListener('click', clearSelection);
-
-    // ── Holding period pills ───────────────────────────────────
-    const holdingPills = document.querySelectorAll('.holding-pill');
-    holdingPills.forEach(pill => {
-        pill.addEventListener('click', () => {
-            holdingPills.forEach(p => {
-                p.className = 'holding-pill flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:border-slate-300 transition-all';
-            });
-            pill.className = 'holding-pill active flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-emerald-500 bg-emerald-600 text-white transition-all';
-            holdingPeriod = pill.dataset.period;
-        });
-    });
-
-    // ── Threshold slider ───────────────────────────────────────
-    const thresholdSlider = document.getElementById('threshold-slider');
-    const thresholdDisplay = document.getElementById('threshold-display');
-    thresholdSlider.addEventListener('input', (e) => {
-        threshold = parseInt(e.target.value) / 100;
-        thresholdDisplay.textContent = `${e.target.value}%`;
+    clearSelectionBtn.addEventListener('click', () => {
+        clearSelection();
+        marketListContainer.classList.remove('hidden');
     });
 
     // ── Backtest button ────────────────────────────────────────
@@ -275,7 +247,7 @@ async function runBacktest() {
     const leaderStep = logStep(`Leader: ${selectedMarket.question}`);
     resolveStep(leaderStep);
 
-    const configStep = logStep(`Config: ${holdingPeriod} hold, ${Math.round(threshold * 100)}% threshold`);
+    const configStep = logStep(`Resolution date: ${(selectedMarket.endDate || '').slice(0, 10)}`);
     resolveStep(configStep);
 
     let currentStep = null;
@@ -295,8 +267,7 @@ async function runBacktest() {
                 market_id: selectedMarket.id,
                 market_question: selectedMarket.question,
                 clob_token_id: clobTokenId,
-                holding_period: holdingPeriod,
-                threshold: threshold,
+                end_date: selectedMarket.endDate,
             }),
         });
 
@@ -357,12 +328,13 @@ async function runBacktest() {
 
         const validTrades = finalData.trades.filter(t => t.status === 'ok');
         if (validTrades.length === 0) {
-            logError('No executable trades found. Related markets had no price data at the signal time.');
+            logError('No executable trades found. Related markets had no price data at the resolution time.');
             return;
         }
 
         const doneStep = logStep(`Backtest complete: ${validTrades.length} trades analyzed`);
-        resolveStep(doneStep, `Average P&L: ${finalData.summary.avg_pnl_pct >= 0 ? '+' : ''}${finalData.summary.avg_pnl_pct.toFixed(2)}%`);
+        const avg1d = finalData.summary.avg_pnl_1d;
+        resolveStep(doneStep, avg1d != null ? `Average 1d P&L: ${avg1d >= 0 ? '+' : ''}${avg1d.toFixed(2)}%` : 'Complete');
 
         await new Promise(r => setTimeout(r, 600));
 
@@ -379,6 +351,13 @@ async function runBacktest() {
 
 // ─── Results Display ────────────────────────────────────────
 
+function formatPnl(val) {
+    if (val == null) return { text: 'N/A', cls: 'text-slate-400' };
+    const sign = val >= 0 ? '+' : '';
+    const cls = val >= 0 ? 'pnl-positive' : 'pnl-negative';
+    return { text: `${sign}${val.toFixed(1)}%`, cls };
+}
+
 function showResults(data) {
     document.getElementById('search-panel').classList.add('hidden');
     document.getElementById('new-backtest-btn').classList.remove('hidden');
@@ -388,24 +367,25 @@ function showResults(data) {
 
     // Summary
     document.getElementById('summary-leader').textContent = data.leader.question;
-    document.getElementById('summary-signal').textContent = `Signal: ${data.leader.signal_time_formatted}`;
+    document.getElementById('summary-resolution').textContent = `Resolved: ${data.leader.resolution_time_formatted}`;
 
-    const periodLabels = { '15m': '15 minutes', '1h': '1 hour', '1d': '1 day', 'resolution': 'Until resolution' };
-    document.getElementById('summary-holding').textContent = `Hold: ${periodLabels[data.holding_period] || data.holding_period}`;
-    document.getElementById('summary-trade-count').textContent = `Trades: ${data.summary.total_trades}${data.summary.skipped_trades ? ` (${data.summary.skipped_trades} skipped)` : ''}`;
+    const validCount = data.summary.total_trades;
+    const skippedCount = data.summary.skipped_trades;
+    document.getElementById('summary-trade-count').textContent = `Trades: ${validCount}${skippedCount ? ` (${skippedCount} skipped)` : ''}`;
 
-    const pnlEl = document.getElementById('summary-pnl');
-    const avgPnl = data.summary.avg_pnl_pct;
-    pnlEl.textContent = `${avgPnl >= 0 ? '+' : ''}${avgPnl.toFixed(2)}%`;
-    pnlEl.className = `text-4xl font-bold ${avgPnl >= 0 ? 'pnl-hero-positive' : 'pnl-hero-negative'}`;
-
-    document.getElementById('summary-wins').textContent = `${data.summary.winning_trades} winning`;
-    document.getElementById('summary-losses').textContent = `${data.summary.losing_trades} losing`;
+    // Multi-timeframe P&L summary
+    for (const tf of ['5m', '1h', '1d', '1w']) {
+        const el = document.getElementById(`summary-pnl-${tf}`);
+        const avg = data.summary[`avg_pnl_${tf}`];
+        const { text, cls } = formatPnl(avg);
+        el.textContent = text;
+        el.className = `text-lg font-bold ${cls}`;
+    }
 
     // Trades table
     renderTradesTable(data.trades);
 
-    // P&L chart
+    // P&L chart (use 1d timeframe)
     renderPnlChart(data.trades.filter(t => t.status === 'ok'));
 }
 
@@ -413,11 +393,11 @@ function renderTradesTable(trades) {
     const tbody = document.getElementById('trades-tbody');
     tbody.innerHTML = '';
 
-    // Sort: valid trades first (by P&L descending), then skipped
+    // Sort: valid trades first (by 1d P&L descending), then skipped
     const sorted = [...trades].sort((a, b) => {
         if (a.status === 'ok' && b.status !== 'ok') return -1;
         if (a.status !== 'ok' && b.status === 'ok') return 1;
-        if (a.status === 'ok' && b.status === 'ok') return (b.pnl_pct || 0) - (a.pnl_pct || 0);
+        if (a.status === 'ok' && b.status === 'ok') return ((b.pnl?.['1d'] ?? 0) - (a.pnl?.['1d'] ?? 0));
         return 0;
     });
 
@@ -428,8 +408,12 @@ function renderTradesTable(trades) {
         tr.className = `trade-row border-b border-slate-50 ${isValid ? 'cursor-pointer hover:bg-slate-50' : 'opacity-50'}`;
 
         if (isValid) {
-            const pnlColor = trade.pnl_pct >= 0 ? 'pnl-positive' : 'pnl-negative';
             const dirColor = trade.direction === 'BUY' ? 'text-emerald-600' : 'text-orange-600';
+            const pnl5m = formatPnl(trade.pnl?.['5m']);
+            const pnl1h = formatPnl(trade.pnl?.['1h']);
+            const pnl1d = formatPnl(trade.pnl?.['1d']);
+            const pnl1w = formatPnl(trade.pnl?.['1w']);
+
             tr.innerHTML = `
                 <td class="px-6 py-3">
                     <p class="font-medium text-slate-800 leading-tight">${escapeHtml(trade.name)}</p>
@@ -437,8 +421,10 @@ function renderTradesTable(trades) {
                 </td>
                 <td class="px-4 py-3 font-mono font-semibold ${dirColor}">${trade.direction}</td>
                 <td class="px-4 py-3 font-mono text-slate-600">${(trade.entry_price * 100).toFixed(1)}%</td>
-                <td class="px-4 py-3 font-mono text-slate-600">${(trade.exit_price * 100).toFixed(1)}%</td>
-                <td class="px-4 py-3 font-mono font-bold ${pnlColor}">${trade.pnl_pct >= 0 ? '+' : ''}${trade.pnl_pct.toFixed(1)}%</td>
+                <td class="px-4 py-3 font-mono font-bold ${pnl5m.cls}">${pnl5m.text}</td>
+                <td class="px-4 py-3 font-mono font-bold ${pnl1h.cls}">${pnl1h.text}</td>
+                <td class="px-4 py-3 font-mono font-bold ${pnl1d.cls}">${pnl1d.text}</td>
+                <td class="px-4 py-3 font-mono font-bold ${pnl1w.cls}">${pnl1w.text}</td>
                 <td class="px-4 py-3 font-mono text-slate-500">${Math.round(trade.confidence_score * 100)}%</td>`;
 
             tr.addEventListener('click', () => openTradeModal(trade));
@@ -451,7 +437,9 @@ function renderTradesTable(trades) {
                 <td class="px-4 py-3 text-slate-400">--</td>
                 <td class="px-4 py-3 text-slate-400">--</td>
                 <td class="px-4 py-3 text-slate-400">--</td>
-                <td class="px-4 py-3 text-slate-400">N/A</td>
+                <td class="px-4 py-3 text-slate-400">--</td>
+                <td class="px-4 py-3 text-slate-400">--</td>
+                <td class="px-4 py-3 text-slate-400">--</td>
                 <td class="px-4 py-3 font-mono text-slate-400">${Math.round(trade.confidence_score * 100)}%</td>`;
         }
 
@@ -463,9 +451,11 @@ function renderPnlChart(trades) {
     const container = document.getElementById('pnl-chart');
     container.innerHTML = '';
 
-    if (trades.length === 0) return;
+    // Use 1d P&L for the chart
+    const chartTrades = trades.filter(t => t.pnl?.['1d'] != null);
+    if (chartTrades.length === 0) return;
 
-    const sorted = [...trades].sort((a, b) => b.pnl_pct - a.pnl_pct);
+    const sorted = [...chartTrades].sort((a, b) => b.pnl['1d'] - a.pnl['1d']);
 
     const margin = { top: 10, right: 60, bottom: 10, left: 200 };
     const barHeight = 28;
@@ -478,7 +468,7 @@ function renderPnlChart(trades) {
         .attr('width', width)
         .attr('height', height);
 
-    const maxAbs = Math.max(Math.abs(d3.min(sorted, d => d.pnl_pct)), Math.abs(d3.max(sorted, d => d.pnl_pct)), 1);
+    const maxAbs = Math.max(Math.abs(d3.min(sorted, d => d.pnl['1d'])), Math.abs(d3.max(sorted, d => d.pnl['1d'])), 1);
 
     const xScale = d3.scaleLinear()
         .domain([-maxAbs, maxAbs])
@@ -497,9 +487,10 @@ function renderPnlChart(trades) {
 
     sorted.forEach((trade, i) => {
         const y = margin.top + i * (barHeight + barGap);
-        const isPositive = trade.pnl_pct >= 0;
-        const barStart = isPositive ? zeroX : xScale(trade.pnl_pct);
-        const barWidth = Math.abs(xScale(trade.pnl_pct) - zeroX);
+        const pnl = trade.pnl['1d'];
+        const isPositive = pnl >= 0;
+        const barStart = isPositive ? zeroX : xScale(pnl);
+        const barWidth = Math.abs(xScale(pnl) - zeroX);
 
         // Bar
         svg.append('rect')
@@ -524,14 +515,14 @@ function renderPnlChart(trades) {
 
         // P&L label
         svg.append('text')
-            .attr('x', isPositive ? xScale(trade.pnl_pct) + 6 : barStart - 6)
+            .attr('x', isPositive ? xScale(pnl) + 6 : barStart - 6)
             .attr('y', y + barHeight / 2)
             .attr('text-anchor', isPositive ? 'start' : 'end')
             .attr('dominant-baseline', 'middle')
             .attr('fill', isPositive ? '#16a34a' : '#dc2626')
             .attr('font-size', '11px')
             .attr('font-weight', '600')
-            .text(`${isPositive ? '+' : ''}${trade.pnl_pct.toFixed(1)}%`);
+            .text(`${isPositive ? '+' : ''}${pnl.toFixed(1)}%`);
     });
 }
 
@@ -548,11 +539,15 @@ function openTradeModal(trade) {
     dirEl.textContent = trade.direction;
     dirEl.className = `text-sm font-bold ${trade.direction === 'BUY' ? 'text-emerald-600' : 'text-orange-600'}`;
 
-    document.getElementById('modal-prices').textContent = `${(trade.entry_price * 100).toFixed(1)}% \u2192 ${(trade.exit_price * 100).toFixed(1)}%`;
+    document.getElementById('modal-entry').textContent = `${(trade.entry_price * 100).toFixed(1)}%`;
 
-    const pnlEl = document.getElementById('modal-pnl');
-    pnlEl.textContent = `${trade.pnl_pct >= 0 ? '+' : ''}${trade.pnl_pct.toFixed(2)}%`;
-    pnlEl.className = `text-sm font-bold ${trade.pnl_pct >= 0 ? 'pnl-positive' : 'pnl-negative'}`;
+    // Multi-timeframe P&Ls
+    for (const tf of ['5m', '1h', '1d', '1w']) {
+        const el = document.getElementById(`modal-pnl-${tf}`);
+        const { text, cls } = formatPnl(trade.pnl?.[tf]);
+        el.textContent = text;
+        el.className = `text-sm font-bold ${cls}`;
+    }
 
     document.getElementById('modal-rationale').textContent = trade.rationale || 'No rationale available.';
 

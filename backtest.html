@@ -25,14 +25,15 @@
                     <a href="index.html"
                         class="text-slate-400 hover:text-slate-600 transition-colors text-sm flex items-center gap-1">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M15 19l-7-7 7-7" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
                         Network
                     </a>
                 </div>
-                <h1 class="text-xl md:text-3xl font-bold text-slate-900 tracking-tight mt-1">Polymarket Backtest</h1>
-                <p class="text-slate-500 text-xs md:text-sm mt-1">Historical Strategy Backtesting</p>
+                <h1 class="text-xl md:text-3xl font-bold text-slate-900 tracking-tight mt-1">Resolution Shock Backtest
+                </h1>
+                <p class="text-slate-500 text-xs md:text-sm mt-1">What happens to related markets when a leader
+                    resolves?</p>
             </div>
             <div class="flex gap-3">
                 <button id="new-backtest-btn"
@@ -48,9 +49,9 @@
         <div id="panel-wrapper" class="w-full max-w-lg mx-4 transition-all duration-300">
             <!-- Title -->
             <div id="panel-title" class="text-center mb-8">
-                <h2 class="text-2xl md:text-3xl font-bold text-slate-900">Backtest a Strategy</h2>
-                <p class="text-slate-500 mt-2 text-sm md:text-base">Select a resolved market and test the correlation
-                    trading strategy</p>
+                <h2 class="text-2xl md:text-3xl font-bold text-slate-900">Resolution Shock Backtest</h2>
+                <p class="text-slate-500 mt-2 text-sm md:text-base">Pick a date to find resolved markets, then see how
+                    related markets reacted</p>
             </div>
 
             <!-- Card -->
@@ -58,19 +59,21 @@
                 class="rounded-2xl shadow-lg border overflow-visible transition-all duration-300 bg-white border-slate-200">
                 <!-- Search Form Contents -->
                 <div id="search-form" class="p-6 space-y-4">
-                    <!-- Search Input -->
-                    <div class="relative">
-                        <input type="text" id="backtest-search" placeholder="Search resolved markets..."
-                            class="w-full px-4 py-3 pl-11 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                            autocomplete="off">
-                        <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none"
-                            stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                        <!-- Autocomplete Dropdown -->
-                        <div id="search-results"
-                            class="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto hidden z-50">
+                    <!-- Date Picker -->
+                    <div>
+                        <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Select
+                            a Date</label>
+                        <input type="date" id="backtest-date"
+                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                            value="">
+                    </div>
+
+                    <!-- Market List (populated after date selection) -->
+                    <div id="market-list-container" class="hidden">
+                        <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Resolved
+                            Markets on This Date</label>
+                        <div id="market-list"
+                            class="max-h-60 overflow-y-auto border border-slate-200 rounded-xl bg-slate-50">
                         </div>
                     </div>
 
@@ -92,32 +95,6 @@
                         </div>
                     </div>
 
-                    <!-- Holding Period -->
-                    <div>
-                        <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Holding
-                            Period</label>
-                        <div id="holding-period-group" class="flex gap-2">
-                            <button data-period="15m"
-                                class="holding-pill flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:border-slate-300 transition-all">15m</button>
-                            <button data-period="1h"
-                                class="holding-pill flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:border-slate-300 transition-all">1h</button>
-                            <button data-period="1d"
-                                class="holding-pill active flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-emerald-500 bg-emerald-600 text-white transition-all">1d</button>
-                            <button data-period="resolution"
-                                class="holding-pill flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:border-slate-300 transition-all">Until
-                                Resolution</button>
-                        </div>
-                    </div>
-
-                    <!-- Threshold -->
-                    <div>
-                        <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Signal
-                            Threshold: <span id="threshold-display"
-                                class="text-slate-700 font-mono">95%</span></label>
-                        <input type="range" id="threshold-slider" min="80" max="99" step="1" value="95"
-                            class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600">
-                    </div>
-
                     <!-- Run Button -->
                     <button id="backtest-btn" disabled
                         class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm shadow-sm">
@@ -135,26 +112,35 @@
     </div>
 
     <!-- Results Container (hidden until done) -->
-    <div id="results-container" class="hidden pt-28 pb-8 px-4 md:px-8 max-w-4xl mx-auto">
+    <div id="results-container" class="hidden pt-28 pb-8 px-4 md:px-8 max-w-5xl mx-auto">
         <!-- Summary Card -->
-        <div id="summary-card"
-            class="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 md:p-8 mb-6">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div id="summary-card" class="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 md:p-8 mb-6">
+            <div class="flex flex-col gap-4">
                 <div class="flex-1 min-w-0">
                     <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Leader Market</p>
                     <p id="summary-leader" class="text-base font-semibold text-slate-900 leading-tight"></p>
                     <div class="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
-                        <span id="summary-signal"></span>
-                        <span id="summary-holding"></span>
+                        <span id="summary-resolution"></span>
                         <span id="summary-trade-count"></span>
                     </div>
                 </div>
-                <div class="text-center md:text-right">
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Avg P&L</p>
-                    <p id="summary-pnl" class="text-4xl font-bold"></p>
-                    <div class="flex justify-center md:justify-end gap-4 mt-2 text-xs text-slate-500">
-                        <span id="summary-wins"></span>
-                        <span id="summary-losses"></span>
+                <!-- Multi-timeframe summary -->
+                <div class="grid grid-cols-4 gap-3 mt-2">
+                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">5 min</p>
+                        <p id="summary-pnl-5m" class="text-lg font-bold"></p>
+                    </div>
+                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1 hour</p>
+                        <p id="summary-pnl-1h" class="text-lg font-bold"></p>
+                    </div>
+                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1 day</p>
+                        <p id="summary-pnl-1d" class="text-lg font-bold"></p>
+                    </div>
+                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1 week</p>
+                        <p id="summary-pnl-1w" class="text-lg font-bold"></p>
                     </div>
                 </div>
             </div>
@@ -175,9 +161,13 @@
                             </th>
                             <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Entry
                             </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Exit
+                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">5m
                             </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">P&L
+                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">1h
+                            </th>
+                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">1d
+                            </th>
+                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">1w
                             </th>
                             <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Conf
                             </th>
@@ -191,7 +181,7 @@
 
         <!-- P&L Bar Chart -->
         <div class="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
-            <h3 class="text-sm font-semibold text-slate-700 mb-4">P&L by Trade</h3>
+            <h3 class="text-sm font-semibold text-slate-700 mb-4">P&L by Trade (1 Day)</h3>
             <div id="pnl-chart"></div>
         </div>
     </div>
@@ -214,18 +204,32 @@
                 </button>
             </div>
             <div class="p-6 space-y-4">
-                <div class="grid grid-cols-3 gap-3">
+                <div class="grid grid-cols-2 gap-3">
                     <div class="bg-slate-50 rounded-lg p-3 text-center">
                         <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">Direction</p>
                         <p id="modal-direction" class="text-sm font-bold"></p>
                     </div>
                     <div class="bg-slate-50 rounded-lg p-3 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">Entry / Exit</p>
-                        <p id="modal-prices" class="text-sm font-mono font-medium text-slate-700"></p>
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">Entry Price</p>
+                        <p id="modal-entry" class="text-sm font-mono font-medium text-slate-700"></p>
                     </div>
-                    <div class="bg-slate-50 rounded-lg p-3 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">P&L</p>
-                        <p id="modal-pnl" class="text-sm font-bold"></p>
+                </div>
+                <div class="grid grid-cols-4 gap-2">
+                    <div class="bg-slate-50 rounded-lg p-2 text-center">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">5m</p>
+                        <p id="modal-pnl-5m" class="text-sm font-bold"></p>
+                    </div>
+                    <div class="bg-slate-50 rounded-lg p-2 text-center">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1h</p>
+                        <p id="modal-pnl-1h" class="text-sm font-bold"></p>
+                    </div>
+                    <div class="bg-slate-50 rounded-lg p-2 text-center">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1d</p>
+                        <p id="modal-pnl-1d" class="text-sm font-bold"></p>
+                    </div>
+                    <div class="bg-slate-50 rounded-lg p-2 text-center">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1w</p>
+                        <p id="modal-pnl-1w" class="text-sm font-bold"></p>
                     </div>
                 </div>
                 <div>

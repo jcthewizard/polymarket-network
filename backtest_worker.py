@@ -1,12 +1,11 @@
 """
-Backtest Worker: Simulates a correlation-based trading strategy on a resolved market.
+Backtest Worker: "Resolution Shock" strategy.
 Algorithm:
-  1. Fetch leader market price history
-  2. Detect when leader crossed a probability threshold (e.g. 95%)
-  3. Find related markets using LLM (reusing discover_worker's two-pass approach)
-  4. Fetch price history for each related market
-  5. Calculate P&L for each trade (buy correlated, short inversely correlated)
-  6. Return aggregated results
+  1. Use the leader market's endDate (resolution time) as the signal
+  2. Find related markets using LLM (reusing discover_worker's two-pass approach)
+  3. Fetch price history for each related market
+  4. Calculate P&L at multiple timeframes from the resolution moment (5m, 1h, 1d, 1w)
+  5. Return aggregated results
 Streams progress events so the frontend can show a live log.
 """
 
@@ -25,26 +24,114 @@ from discover_worker import (
     _get_active_categories,
 )
 
-# Holding period durations in seconds
-HOLDING_PERIODS = {
-    "15m": 15 * 60,
+# Timeframes to measure P&L at (seconds after resolution)
+TIMEFRAMES = {
+    "5m": 5 * 60,
     "1h": 60 * 60,
     "1d": 24 * 60 * 60,
-    "resolution": None,  # Special: hold until leader resolves
+    "1w": 7 * 24 * 60 * 60,
 }
 
 # Tolerance for finding nearest price point (seconds)
 TOLERANCES = {
-    "15m": 5 * 60,
+    "5m": 3 * 60,
     "1h": 15 * 60,
     "1d": 2 * 60 * 60,
-    "resolution": 2 * 60 * 60,
+    "1w": 6 * 60 * 60,
 }
+
+
+def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
+    """Fetch candidate markets from Gamma API (fallback when local DB is empty).
+    Fetches BOTH active and recently closed markets so that older leader markets
+    can find followers that existed at the time of resolution.
+    """
+    all_markets = []
+
+    # Fetch from two sources: active markets AND high-volume closed markets
+    queries = [
+        ("active=true&closed=false", 1000),   # Currently active
+        ("closed=true", 2000),                 # Recently closed (sorted by volume)
+    ]
+
+    for query_filter, max_count in queries:
+        offset = 0
+        limit = 500
+        fetched = 0
+        while fetched < max_count:
+            url = (
+                f"https://gamma-api.polymarket.com/markets?{query_filter}"
+                f"&limit={limit}&offset={offset}"
+                f"&order=volume&ascending=false"
+            )
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
+                )
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    markets = json.loads(response.read().decode("utf-8"))
+                    if not markets:
+                        break
+                    all_markets.extend(markets)
+                    fetched += len(markets)
+                    if len(markets) < limit:
+                        break
+                    offset += limit
+                    if offset >= max_count:
+                        break
+                    time.sleep(0.2)
+            except Exception as e:
+                print(f"[Backtest] Error fetching from Gamma at offset {offset}: {e}")
+                break
+
+    # Deduplicate by market ID
+    seen_ids = set()
+    unique_markets = []
+    for m in all_markets:
+        mid = m.get("id", "")
+        if mid and mid not in seen_ids:
+            seen_ids.add(mid)
+            unique_markets.append(m)
+
+    # Normalize to match db.get_all_markets() format
+    result = []
+    for m in unique_markets:
+        try:
+            vol = float(m.get("volume", 0) or 0)
+            if vol < min_volume:
+                continue
+
+            clob_ids = json.loads(m.get("clobTokenIds", "[]"))
+            if not clob_ids:
+                continue
+
+            # Parse probability from outcomePrices
+            prices = json.loads(m.get("outcomePrices", "[]"))
+            prob = float(prices[0]) if prices else 0.5
+
+            result.append({
+                "id": m.get("id", ""),
+                "name": m.get("question", ""),
+                "slug": m.get("slug", ""),
+                "category": "Other",
+                "volume": vol,
+                "probability": prob,
+                "clob_token_id": clob_ids[0] if clob_ids else "",
+                "startDate": m.get("startDate", ""),
+                "endDate": m.get("endDate", ""),
+                "closed": m.get("closed", False),
+            })
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+    print(f"[Backtest] Fetched {len(result)} candidate markets from Gamma API (active + closed, vol >= ${min_volume:,})")
+    return result
 
 
 def _fetch_price_history(clob_token_id: str, fidelity: int = 60) -> Optional[List[Dict]]:
     """Fetch price history from CLOB API."""
-    url = f"https://clob.polymarket.com/prices-history?market={clob_token_id}&interval=1d&fidelity={fidelity}"
+    url = f"https://clob.polymarket.com/prices-history?market={clob_token_id}&interval=max&fidelity={fidelity}"
     print(f"[Backtest] Fetching: {url}")
     try:
         req = urllib.request.Request(
@@ -90,17 +177,39 @@ def _format_timestamp(ts: int) -> str:
     return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M UTC")
 
 
+def _parse_end_date(end_date: str) -> Optional[int]:
+    """Parse an ISO date string to unix timestamp."""
+    if not end_date:
+        return None
+    try:
+        # Handle ISO format with timezone
+        dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        return int(dt.timestamp())
+    except Exception:
+        pass
+    try:
+        # Handle simple date string
+        dt = datetime.strptime(end_date[:19], "%Y-%m-%dT%H:%M:%S")
+        return int(dt.timestamp())
+    except Exception:
+        pass
+    try:
+        dt = datetime.strptime(end_date[:10], "%Y-%m-%d")
+        return int(dt.timestamp())
+    except Exception:
+        return None
+
+
 def run_backtest_stream(
     market_id: str,
     market_question: str,
     clob_token_id: str,
-    holding_period: str,
-    threshold: float,
+    end_date: str,
     openai_api_key: str,
     min_volume: int = 10000,
 ) -> Generator[Dict, None, None]:
     """
-    Run backtest analysis. Yields progress events as a stream.
+    Run Resolution Shock backtest. Yields progress events as a stream.
 
     Event types:
       {"type": "step",   "message": "..."}
@@ -109,77 +218,66 @@ def run_backtest_stream(
       {"type": "done",   "data": {...}}
     """
 
-    # ── Step 1: Fetch leader price history ──────────────────────
-    yield {"type": "step", "message": f"Fetching leader market price history (token: {clob_token_id[:16]}...)"}
+    # ── Step 1: Determine resolution time ────────────────────────
+    yield {"type": "step", "message": "Determining resolution time from endDate"}
 
-    # Try hourly fidelity first (most reliable), then minute-level for short holds
-    leader_history = _fetch_price_history(clob_token_id, fidelity=60)
-
-    if not leader_history:
-        yield {"type": "error", "message": "Could not fetch price history for this market. This can happen if the market is too old (pre-2023) or the CLOB API no longer has its data. Try a more recently resolved market."}
-        return
-
-    # For short holding periods, try to get finer granularity
-    if holding_period in ("15m", "1h"):
-        fine_history = _fetch_price_history(clob_token_id, fidelity=1)
-        if fine_history:
-            leader_history = fine_history
-            yield {"type": "result", "message": f"Loaded {len(leader_history)} price points (minute granularity)"}
-        else:
-            yield {"type": "result", "message": f"Loaded {len(leader_history)} price points (hourly granularity — minute-level unavailable, short holds may be approximate)"}
-    else:
-        yield {"type": "result", "message": f"Loaded {len(leader_history)} price points (hourly granularity)"}
-
-    # Sort history chronologically
-    leader_history.sort(key=lambda x: x["t"])
-
-    # ── Step 2: Detect threshold crossing ───────────────────────
-    yield {"type": "step", "message": f"Scanning for {int(threshold * 100)}% threshold crossing"}
-
-    signal_time = None
-    for point in leader_history:
-        if point["p"] >= threshold:
-            signal_time = point["t"]
-            break
-
-    if signal_time is None:
-        max_price = max(p["p"] for p in leader_history) if leader_history else 0
-        yield {
-            "type": "error",
-            "message": f"Leader never crossed {int(threshold * 100)}% threshold (max was {max_price * 100:.1f}%). Try a lower threshold.",
-        }
+    resolution_time = _parse_end_date(end_date)
+    if resolution_time is None:
+        yield {"type": "error", "message": f"Could not parse endDate: '{end_date}'. Cannot determine resolution time."}
         return
 
     yield {
         "type": "result",
-        "message": f"Threshold crossed at {_format_timestamp(signal_time)}",
-        "data": {"signal_time": signal_time},
+        "message": f"Resolution time: {_format_timestamp(resolution_time)}",
+        "data": {"resolution_time": resolution_time},
     }
 
-    # Calculate exit time
-    if holding_period == "resolution":
-        exit_time = leader_history[-1]["t"]
-        yield {
-            "type": "result",
-            "message": f"Holding until resolution: {_format_timestamp(exit_time)}",
-        }
-    else:
-        duration = HOLDING_PERIODS[holding_period]
-        exit_time = signal_time + duration
-        yield {
-            "type": "result",
-            "message": f"Exit time: {_format_timestamp(exit_time)} (holding {holding_period})",
-        }
-
-    # ── Step 3: Find related markets using LLM ──────────────────
-    yield {"type": "step", "message": "Loading candidate markets from database"}
+    # ── Step 2: Find related markets using LLM ──────────────────
+    yield {"type": "step", "message": "Loading candidate markets"}
 
     all_markets = db.get_all_markets()
-    candidates = [m for m in all_markets if m["id"] != market_id and m["volume"] >= min_volume]
 
+    # If local DB is empty, fetch active markets from Gamma API directly
+    if not all_markets:
+        yield {"type": "step", "message": "Local database empty — fetching active markets from Gamma API"}
+        all_markets = _fetch_candidate_markets_from_gamma(min_volume)
+        yield {
+            "type": "result",
+            "message": f"Fetched {len(all_markets)} active markets from Gamma API",
+        }
+
+    # Filter: different market, minimum volume
+    # For active markets: also filter by probability 5-95% (avoid near-resolved)
+    # For closed markets: skip probability filter (resolved = 0% or 100%)
+    # For all: check time overlap with resolution time
+    candidates = []
+    skipped_time = 0
+    for m in all_markets:
+        if m.get("id", "") == market_id:
+            continue
+        if m.get("volume", 0) < min_volume:
+            continue
+        # Active markets: filter by probability
+        if not m.get("closed", False):
+            prob = m.get("probability", 0.5)
+            if not (0.05 <= prob <= 0.95):
+                continue
+        # Time overlap: candidate must have existed at resolution time
+        start_str = m.get("startDate", "")
+        if start_str and resolution_time:
+            try:
+                start_ts = int(datetime.fromisoformat(start_str.replace("Z", "+00:00")).timestamp())
+                if start_ts > resolution_time:
+                    skipped_time += 1
+                    continue
+            except (ValueError, TypeError):
+                pass
+        candidates.append(m)
+
+    time_msg = f", {skipped_time} skipped (started after resolution)" if skipped_time else ""
     yield {
         "type": "result",
-        "message": f"Loaded {len(candidates)} candidate markets (vol >= ${min_volume:,})",
+        "message": f"Loaded {len(candidates)} candidate markets (vol >= ${min_volume:,}{time_msg})",
         "data": {"count": len(candidates)},
     }
 
@@ -227,7 +325,7 @@ def run_backtest_stream(
     else:
         yield {
             "type": "result",
-            "message": f"{len(candidates)} → {len(filtered_candidates)} candidates after category filter",
+            "message": f"{len(candidates)} -> {len(filtered_candidates)} candidates after category filter",
         }
 
     # Pass 2: Relationship discovery (batched)
@@ -312,61 +410,68 @@ def run_backtest_stream(
         yield {"type": "error", "message": "No related markets could be matched. Try a different market."}
         return
 
-    # ── Step 4: Fetch price history and calculate P&L ───────────
+    # ── Step 3: Fetch price history and calculate multi-timeframe P&L ──
     yield {"type": "step", "message": f"Fetching price data for {len(followers)} related markets"}
 
-    tolerance = TOLERANCES.get(holding_period, 2 * 60 * 60)
     trades = []
 
     for i, follower in enumerate(followers):
         f_clob = follower.get("clob_token_id", "")
         if not f_clob:
-            trades.append({**follower, "status": "no_clob_id", "entry_price": None, "exit_price": None, "pnl_pct": None})
+            trades.append({**follower, "status": "no_clob_id", "entry_price": None, "pnl": {}})
             continue
 
         f_history = _fetch_price_history(f_clob, fidelity=60)
         if not f_history:
-            trades.append({**follower, "status": "no_data", "entry_price": None, "exit_price": None, "pnl_pct": None})
+            trades.append({**follower, "status": "no_data", "entry_price": None, "pnl": {}})
             continue
 
         f_history.sort(key=lambda x: x["t"])
 
-        # Find entry price (at signal_time)
-        entry_price = _find_nearest_price(f_history, signal_time, tolerance)
+        # Find entry price (at resolution time)
+        entry_price = _find_nearest_price(f_history, resolution_time, TOLERANCES["1h"])
         if entry_price is None:
-            trades.append({**follower, "status": "no_entry_price", "entry_price": None, "exit_price": None, "pnl_pct": None})
+            data_start = _format_timestamp(f_history[0]["t"]) if f_history else "?"
+            data_end = _format_timestamp(f_history[-1]["t"]) if f_history else "?"
+            print(f"[Backtest] SKIP {follower.get('name','')[:50]}: no price near resolution ({_format_timestamp(resolution_time)}). Data range: {data_start} to {data_end}")
+            trades.append({**follower, "status": "no_entry_price", "entry_price": None, "pnl": {}})
             continue
 
-        # Find exit price
-        exit_price = _find_nearest_price(f_history, exit_time, tolerance)
-        if exit_price is None:
-            # Market may have resolved early — use last available price
-            last_point = f_history[-1]
-            if last_point["t"] < exit_time:
-                exit_price = last_point["p"]
-            else:
-                trades.append(
-                    {**follower, "status": "no_exit_price", "entry_price": entry_price, "exit_price": None, "pnl_pct": None}
-                )
-                continue
+        # Calculate P&L at each timeframe
+        pnl = {}
+        for tf_name, tf_seconds in TIMEFRAMES.items():
+            exit_time = resolution_time + tf_seconds
+            tolerance = TOLERANCES[tf_name]
 
-        # Calculate P&L
-        if follower["is_same_outcome"]:
-            # Buy YES: profit if price goes up
-            direction = "BUY"
-            if entry_price > 0.001:
-                pnl_pct = (exit_price - entry_price) / entry_price * 100
+            exit_price = _find_nearest_price(f_history, exit_time, tolerance)
+            if exit_price is None:
+                # Try using last available price if market ended before exit time
+                last_point = f_history[-1]
+                if last_point["t"] < exit_time:
+                    exit_price = last_point["p"]
+                else:
+                    pnl[tf_name] = None
+                    continue
+
+            # Calculate P&L based on direction
+            if follower["is_same_outcome"]:
+                # Buy YES: profit if price goes up
+                if entry_price > 0.001:
+                    pnl_pct = (exit_price - entry_price) / entry_price * 100
+                else:
+                    pnl_pct = 0.0
             else:
-                pnl_pct = 0.0
-        else:
-            # Buy NO (short YES): profit if YES price goes down
-            direction = "SHORT"
-            entry_no = 1 - entry_price
-            exit_no = 1 - exit_price
-            if entry_no > 0.001:
-                pnl_pct = (exit_no - entry_no) / entry_no * 100
-            else:
-                pnl_pct = 0.0
+                # Buy NO (short YES): profit if YES price goes down
+                entry_no = 1 - entry_price
+                exit_no = 1 - exit_price
+                if entry_no > 0.001:
+                    pnl_pct = (exit_no - entry_no) / entry_no * 100
+                else:
+                    pnl_pct = 0.0
+
+            pnl[tf_name] = round(pnl_pct, 2)
+
+        direction = "BUY" if follower["is_same_outcome"] else "SHORT"
 
         trades.append(
             {
@@ -374,8 +479,7 @@ def run_backtest_stream(
                 "status": "ok",
                 "direction": direction,
                 "entry_price": round(entry_price, 4),
-                "exit_price": round(exit_price, 4),
-                "pnl_pct": round(pnl_pct, 2),
+                "pnl": pnl,
             }
         )
 
@@ -388,32 +492,23 @@ def run_backtest_stream(
 
     yield {
         "type": "result",
-        "message": f"Fetched price data: {len(valid_trades)} trades executable, {len(skipped_trades)} skipped",
+        "message": f"Fetched price data: {len(valid_trades)} trades OK, {len(skipped_trades)} skipped",
     }
 
-    # ── Step 5: Calculate summary ───────────────────────────────
+    # ── Step 4: Calculate summary ───────────────────────────────
+    summary = {"total_trades": len(valid_trades), "skipped_trades": len(skipped_trades)}
+
     if valid_trades:
-        pnls = [t["pnl_pct"] for t in valid_trades]
-        avg_pnl = sum(pnls) / len(pnls)
-        summary = {
-            "total_trades": len(valid_trades),
-            "skipped_trades": len(skipped_trades),
-            "avg_pnl_pct": round(avg_pnl, 2),
-            "best_trade_pnl": round(max(pnls), 2),
-            "worst_trade_pnl": round(min(pnls), 2),
-            "winning_trades": sum(1 for p in pnls if p > 0),
-            "losing_trades": sum(1 for p in pnls if p <= 0),
-        }
-    else:
-        summary = {
-            "total_trades": 0,
-            "skipped_trades": len(skipped_trades),
-            "avg_pnl_pct": 0,
-            "best_trade_pnl": 0,
-            "worst_trade_pnl": 0,
-            "winning_trades": 0,
-            "losing_trades": 0,
-        }
+        for tf_name in TIMEFRAMES:
+            tf_pnls = [t["pnl"].get(tf_name) for t in valid_trades if t["pnl"].get(tf_name) is not None]
+            if tf_pnls:
+                summary[f"avg_pnl_{tf_name}"] = round(sum(tf_pnls) / len(tf_pnls), 2)
+                summary[f"wins_{tf_name}"] = sum(1 for p in tf_pnls if p > 0)
+                summary[f"losses_{tf_name}"] = sum(1 for p in tf_pnls if p <= 0)
+            else:
+                summary[f"avg_pnl_{tf_name}"] = None
+                summary[f"wins_{tf_name}"] = 0
+                summary[f"losses_{tf_name}"] = 0
 
     # ── Done ────────────────────────────────────────────────────
     yield {
@@ -422,13 +517,11 @@ def run_backtest_stream(
             "leader": {
                 "id": market_id,
                 "question": market_question,
-                "signal_time": signal_time,
-                "signal_time_formatted": _format_timestamp(signal_time),
-                "threshold": threshold,
+                "resolution_time": resolution_time,
+                "resolution_time_formatted": _format_timestamp(resolution_time),
+                "end_date": end_date,
             },
-            "holding_period": holding_period,
-            "exit_time": exit_time,
-            "exit_time_formatted": _format_timestamp(exit_time),
+            "timeframes": list(TIMEFRAMES.keys()),
             "trades": trades,
             "summary": summary,
         },

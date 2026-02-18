@@ -25,14 +25,20 @@ RESOLVED_CACHE_TTL = 600  # 10 minutes
 
 
 def _fetch_resolved_markets():
-    """Fetch resolved markets from Gamma API with pagination."""
+    """Fetch resolved markets from Gamma API with pagination.
+    Includes ALL resolved markets (both Yes and No outcomes) with valid dates.
+    """
     all_markets = []
     offset = 0
     limit = 500
-    max_markets = 2000  # Cap to avoid excessive fetching
+    max_markets = 4000  # Fetch more to ensure good date coverage
 
     while len(all_markets) < max_markets:
-        url = f"https://gamma-api.polymarket.com/markets?closed=true&limit={limit}&offset={offset}"
+        url = (
+            f"https://gamma-api.polymarket.com/markets?closed=true"
+            f"&limit={limit}&offset={offset}"
+            f"&order=volume&ascending=false"
+        )
         try:
             req = urllib.request.Request(
                 url,
@@ -52,38 +58,59 @@ def _fetch_resolved_markets():
             print(f"Error fetching resolved markets at offset {offset}: {e}")
             break
 
-    # Filter to markets that resolved to Yes
-    # Only include markets from 2023+ (CLOB launched late 2022, older markets have no price history)
-    resolved_yes = []
+    # Filter to resolved markets with valid dates and CLOB token IDs
+    resolved = []
     for m in all_markets:
         try:
             prices = json.loads(m.get('outcomePrices', '[]'))
             clob_ids = json.loads(m.get('clobTokenIds', '[]'))
             volume = float(m.get('volume', 0) or 0)
             end_date = m.get('endDate', '') or ''
+            start_date = m.get('startDate', '') or ''
 
-            # Skip old markets without CLOB data
-            if end_date and end_date < '2023-01-01':
+            # Must have valid dates and CLOB IDs
+            if not end_date or not start_date or not clob_ids:
                 continue
 
-            # Resolved to Yes: first outcome price ~1.0
-            if prices and float(prices[0]) > 0.95 and clob_ids and volume >= 10000:
-                resolved_yes.append({
-                    'id': m['id'],
-                    'question': m.get('question', ''),
-                    'slug': m.get('slug', ''),
-                    'volume': volume,
-                    'clobTokenIds': clob_ids,
-                    'endDate': end_date,
-                })
+            # Skip very old markets (pre-CLOB, no price history)
+            if end_date < '2023-01-01':
+                continue
+
+            # Minimum volume filter
+            if volume < 1000:
+                continue
+
+            # Determine which outcome resolved (Yes or No)
+            resolved_outcome = None
+            if prices and len(prices) >= 2:
+                p0 = float(prices[0])
+                p1 = float(prices[1])
+                if p0 > 0.95:
+                    resolved_outcome = "Yes"
+                elif p1 > 0.95:
+                    resolved_outcome = "No"
+
+            if resolved_outcome is None:
+                continue
+
+            resolved.append({
+                'id': m['id'],
+                'question': m.get('question', ''),
+                'slug': m.get('slug', ''),
+                'volume': volume,
+                'clobTokenIds': clob_ids,
+                'startDate': start_date,
+                'endDate': end_date,
+                'resolved_outcome': resolved_outcome,
+            })
         except (ValueError, TypeError, json.JSONDecodeError):
             continue
 
-    # Sort by endDate descending (most recent first)
-    resolved_yes.sort(key=lambda x: x.get('endDate', ''), reverse=True)
+    # Sort by volume descending (most liquid first)
+    resolved.sort(key=lambda x: x.get('volume', 0), reverse=True)
 
-    print(f"[Backtest] Cached {len(resolved_yes)} resolved-to-Yes markets (from {len(all_markets)} closed)")
-    return resolved_yes
+    print(f"[Backtest] Cached {len(resolved)} resolved markets (from {len(all_markets)} closed)")
+    return resolved
 
 
 def _get_resolved_markets_cache():
@@ -392,24 +419,38 @@ Respond with ONLY the category name, nothing else."""
                 pass
 
     def handle_backtest_search(self):
-        """Search for resolved markets from Gamma API (cached)."""
+        """Search for resolved markets from Gamma API (cached).
+        Supports:
+          ?q=text      — keyword search (legacy)
+          ?date=YYYY-MM-DD — date-based: markets active on that date
+        """
         try:
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             query = params.get('q', [''])[0].lower().strip()
-
-            if len(query) < 2:
-                self.send_json_response([])
-                return
+            date_str = params.get('date', [''])[0].strip()
 
             resolved_markets = _get_resolved_markets_cache()
 
-            results = [
-                m for m in resolved_markets
-                if query in m['question'].lower()
-            ][:20]
-
-            self.send_json_response(results)
+            if date_str:
+                # Date-based search: return markets where startDate <= date <= endDate
+                results = []
+                for m in resolved_markets:
+                    s = (m.get('startDate') or '')[:10]
+                    e = (m.get('endDate') or '')[:10]
+                    if s and e and s <= date_str <= e:
+                        results.append(m)
+                # Sort by volume descending
+                results.sort(key=lambda x: x.get('volume', 0), reverse=True)
+                self.send_json_response(results[:50])
+            elif len(query) >= 2:
+                results = [
+                    m for m in resolved_markets
+                    if query in m['question'].lower()
+                ][:20]
+                self.send_json_response(results)
+            else:
+                self.send_json_response([])
 
         except Exception as e:
             print(f"Backtest search error: {e}")
@@ -427,8 +468,7 @@ Respond with ONLY the category name, nothing else."""
             market_id = data.get('market_id', '')
             market_question = data.get('market_question', '')
             clob_token_id = data.get('clob_token_id', '')
-            holding_period = data.get('holding_period', '1d')
-            threshold = float(data.get('threshold', 0.95))
+            end_date = data.get('end_date', '')
 
             if not market_id or not clob_token_id:
                 self.send_error_response(400, 'market_id and clob_token_id are required')
@@ -455,7 +495,7 @@ Respond with ONLY the category name, nothing else."""
                     importlib.reload(backtest_worker)
                     for event in backtest_worker.run_backtest_stream(
                         market_id, market_question, clob_token_id,
-                        holding_period, threshold, OPENAI_API_KEY,
+                        end_date, OPENAI_API_KEY,
                     ):
                         eq.put(event)
                 except Exception as exc:
