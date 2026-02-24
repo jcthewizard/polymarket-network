@@ -150,39 +150,33 @@ def _discover_relationships(leader_question: str, candidate_questions: List[str]
         {
             "role": "system",
             "content": (
-                "You are a precise analyst of prediction markets. You identify only strong, "
-                "meaningful causal relationships — not speculative or tenuous ones. "
-                "Quality over quantity: a short list of strong connections is far more valuable "
-                "than a long list of weak ones. You understand the difference between a true "
-                "leader-follower relationship (where the leader CAUSES the follower to move) "
-                "and mere correlation or shared context."
+                "You are a precise analyst of prediction markets. You identify meaningful "
+                "relationships between markets — where the resolution of one market would "
+                "significantly affect the probability of another. "
+                "Quality over quantity: a focused list of strong connections is more valuable "
+                "than a long list of weak ones."
             )
         },
         {
             "role": "user",
-            "content": f"""Given a "leader" market, identify which of the candidate markets below are true "followers" — meaning the leader's resolution would DIRECTLY CAUSE a meaningful shift in the follower's probability.
+            "content": f"""Given a "leader" market, identify which of the candidate markets below are "followers" — meaning the leader's resolution would meaningfully shift the follower's probability.
 
 Leader Market: "{leader_question}"
 
 Candidate Markets:
 {market_list}
 
-RULES — Apply these strictly:
+RULES:
 
-1. CAUSATION, NOT CORRELATION: The leader's outcome must be a ROOT CAUSE that drives the follower. Shared context, common themes, or vague connections do NOT count.
-   - CORRECT: Leader "Will Trump win the election?" → Follower "Will the US withdraw from NATO?" (election outcome directly affects policy)
-   - WRONG: Leader "Will Bitcoin hit $100k?" → Follower "Will Ethereum hit $5k?" (correlated assets, but Bitcoin doesn't CAUSE Ethereum's price)
-   - WRONG: Leader "Will the Lakers win the NBA Finals?" → Follower "Will LeBron win MVP?" (related topic, but the championship doesn't cause the MVP vote)
+1. RELATIONSHIP: The leader's outcome should meaningfully affect the follower's probability. This includes direct causation, strong correlation, shared underlying events, or thematic connections where knowing the leader's outcome gives you useful information about the follower.
 
-2. DIRECTIONALITY: The causal arrow must flow FROM the leader TO the follower. If a candidate influences the leader but not vice versa, exclude it. If they merely co-move, exclude it.
+2. DIRECTIONALITY: The relationship should flow FROM the leader TO the follower — the leader's resolution should inform the follower, not the other way around.
 
-3. STRENGTH: The leader's resolution must cause a >5% shift in the follower's probability. Vague "butterfly effect" reasoning is not sufficient.
+3. STRENGTH: The leader's resolution should cause a noticeable shift (>5%) in the follower's probability.
 
-4. NOT A LEADER? RETURN EMPTY: If the leader market is a niche topic, a derivative bet, or an isolated event that doesn't drive other markets, return an EMPTY followers list. Not every market is a leader — most are not.
+4. SELECTIVITY: From {len(candidate_questions)} candidates, you should typically find 0-15 followers. Most candidates will NOT be followers.
 
-5. SELECTIVITY: From {len(candidate_questions)} candidates, you should typically find 0-10 genuine followers. Most candidates will NOT be followers. It is perfectly fine — and expected for many markets — to return an empty list.
-
-6. CONFIDENCE SCORES: Reserve 0.8+ for direct, obvious causal links. Most indirect relationships should be 0.4-0.7. If you'd score something below 0.3, don't include it at all.
+5. CONFIDENCE SCORES: Use 0.8+ for direct, obvious links. Use 0.4-0.7 for indirect relationships. Don't include anything below 0.3.
 
 For each follower, provide:
 - question: The exact text of the follower market question as given above

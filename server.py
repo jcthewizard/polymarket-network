@@ -761,8 +761,12 @@ _refresh_in_progress = False
 
 def check_and_refresh():
     """Check if data is stale and trigger a background refresh if needed.
-    Called on user requests — no refresh happens if nobody visits the site."""
+    Called on user requests — no refresh happens if nobody visits the site.
+    Set AUTO_REFRESH=1 env var to enable (disabled by default)."""
     global _refresh_in_progress
+
+    if not os.environ.get("AUTO_REFRESH"):
+        return
 
     if _refresh_in_progress:
         return
