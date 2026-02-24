@@ -5,7 +5,7 @@ High-frequency trading execution module that takes signals from the
 correlation engine and executes trades with:
   - Confidence-based position sizing
   - Dynamic take-profit / stop-loss
-  - Automatic 3-minute time exit (async)
+  - SQLite-backed position persistence
 
 Configuration is loaded exclusively from .env via python-dotenv.
 
@@ -25,6 +25,7 @@ from typing import Optional, Dict, Any, Tuple
 
 import requests as _requests
 
+import database as db
 from dotenv import load_dotenv
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType
@@ -39,7 +40,6 @@ HOST = "https://clob.polymarket.com"
 GAMMA_API = "https://gamma-api.polymarket.com"
 CHAIN_ID = 137                        # Polygon Mainnet
 MAX_SPEND_USDC = 5.00                 # Hard safety cap per trade (USD)
-TIME_EXIT_SECONDS = 180               # 3-minute auto-close
 
 # Base risk parameters
 BASE_TP_PCT = 0.05                    # +5 %
@@ -79,9 +79,6 @@ class TradingExecutor:
         """
         self.dry_run = dry_run
         self._private_key = private_key or os.environ.get("POLY_PRIVATE_KEY", "")
-
-        # In-flight positions keyed by a synthetic position id
-        self._positions: Dict[str, Dict[str, Any]] = {}
 
         # Token-id cache:  slug → {"Yes": token_id, "No": token_id}
         self._token_cache: Dict[str, Dict[str, str]] = {}
@@ -220,15 +217,6 @@ class TradingExecutor:
         return self._token_cache[market_slug][outcome]
 
     # ------------------------------------------------------------------
-    # Async time exit  (3-minute auto-close)
-    # ------------------------------------------------------------------
-    async def _schedule_time_exit(self, position_id: str) -> None:
-        """Wait 3 minutes, then close the position automatically."""
-        await asyncio.sleep(TIME_EXIT_SECONDS)
-        logger.info("⏰  Time exit triggered for position %s", position_id)
-        await self.close_position(position_id)
-
-    # ------------------------------------------------------------------
     # Open position
     # ------------------------------------------------------------------
     async def open_position(
@@ -239,7 +227,7 @@ class TradingExecutor:
         price: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Size a trade, place a limit-buy order, and schedule a 3-minute exit.
+        Size a trade, place a limit-buy order, and persist the position to DB.
 
         Args:
             market_slug:      e.g. "will-trump-win-2024"
@@ -320,61 +308,208 @@ class TradingExecutor:
             signed = self.client.create_order(order_args)
             response = self.client.post_order(signed, OrderType.GTC)
             position["order_response"] = response
+            position["order_id"] = (
+                response.get("orderID") or response.get("id")
+                if isinstance(response, dict) else None
+            )
             position["status"] = "OPEN"
             logger.info("✅  Order posted: %s", response)
 
-        # Track the position
-        self._positions[position_id] = position
-
-        # Schedule the 3-minute auto-close
-        asyncio.ensure_future(self._schedule_time_exit(position_id))
-        logger.info(
-            "⏱️  Time exit scheduled: %s will auto-close in %ds",
-            position_id, TIME_EXIT_SECONDS,
-        )
+        # Persist to database
+        db.insert_position({
+            "id": position_id,
+            "signal_id": None,
+            "market_slug": market_slug,
+            "token_id": token_id,
+            "outcome": outcome,
+            "side": "BUY",
+            "entry_price": price,
+            "size_shares": size,
+            "amount_usdc": amount_usdc,
+            "status": position["status"],
+            "order_id": position.get("order_id"),
+            "opened_at": position["opened_at"],
+            "dry_run": is_dry,
+        })
 
         return position
 
     # ------------------------------------------------------------------
     # Close position
     # ------------------------------------------------------------------
-    async def close_position(self, position_id: str) -> Dict[str, Any]:
+    async def close_position(self, position_id: str, exit_price: float) -> Dict[str, Any]:
         """
-        Close an open position by selling shares.
+        Close an open position by selling shares at *exit_price*.
         """
-        position = self._positions.get(position_id)
+        position = db.get_position(position_id)
         if position is None:
             logger.warning("Position %s not found — may already be closed.", position_id)
             return {"position_id": position_id, "status": "NOT_FOUND"}
 
-        if position["status"] in ("CLOSED", "DRY_RUN"):
+        if position["status"] in ("CLOSED", "DRY_RUN", "CLOSED_DRY"):
             logger.info("Position %s already %s — skipping.", position_id, position["status"])
             return position
 
         is_dry = self.dry_run
+        closed_at = datetime.now(timezone.utc).isoformat()
+        close_order_id = None
 
         if is_dry:
-            logger.info("🏜️  DRY RUN — close NOT executed for %s", position_id)
-            position["status"] = "CLOSED_DRY"
+            logger.info("DRY RUN — close NOT executed for %s", position_id)
+            new_status = "CLOSED_DRY"
         else:
             if self.client is None:
                 raise RuntimeError("Cannot close live position: no private key.")
 
-            logger.info("📤  Closing position %s (SELL %s shares)", position_id, position["size_shares"])
+            logger.info("Closing position %s (SELL %s shares @ %.4f)", position_id, position["size_shares"], exit_price)
 
             order_args = OrderArgs(
                 token_id=position["token_id"],
-                price=position["entry_price"],   # market-close at entry (GTC)
+                price=exit_price,
                 size=position["size_shares"],
                 side=SELL,
             )
             signed = self.client.create_order(order_args)
             response = self.client.post_order(signed, OrderType.GTC)
-            position["close_response"] = response
-            position["status"] = "CLOSED"
-            logger.info("✅  Position closed: %s", response)
+            close_order_id = (
+                response.get("orderID") or response.get("id")
+                if isinstance(response, dict) else None
+            )
+            new_status = "CLOSED"
+            logger.info("Position closed: %s", response)
 
-        position["closed_at"] = datetime.now(timezone.utc).isoformat()
+        # Compute realized PnL
+        entry = position["entry_price"] or 0.0
+        realized_pnl = (exit_price - entry) * (position["size_shares"] or 0.0)
+
+        db.update_position(position_id, {
+            "status": new_status,
+            "exit_price": exit_price,
+            "close_order_id": close_order_id,
+            "realized_pnl": round(realized_pnl, 6),
+            "closed_at": closed_at,
+        })
+
+        position["status"] = new_status
+        position["exit_price"] = exit_price
+        position["closed_at"] = closed_at
+        position["realized_pnl"] = round(realized_pnl, 6)
+        return position
+
+    # ------------------------------------------------------------------
+    # Open position (fixed amount — no confidence sizing)
+    # ------------------------------------------------------------------
+    async def open_position_fixed(
+        self,
+        market_slug: str,
+        outcome: str,
+        amount_usdc: float = 1.0,
+        price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Place a fixed-size trade (no confidence-based sizing).
+
+        This is a convenience wrapper around the core order logic.
+        Unlike ``open_position``, the USDC amount is specified directly.
+
+        Args:
+            market_slug:  e.g. "will-trump-win-2024"
+            outcome:      "Yes" or "No"
+            amount_usdc:  Fixed USDC amount to spend (default $1.00).
+            price:        Explicit limit price (0.01–0.99).
+                          If None, the current mid-market price is used.
+
+        Returns:
+            Position summary dict.
+        """
+        outcome = outcome.strip().capitalize()
+
+        if amount_usdc > MAX_SPEND_USDC:
+            raise ValueError(
+                f"Position size ${amount_usdc:.2f} exceeds safety cap "
+                f"${MAX_SPEND_USDC:.2f}."
+            )
+
+        token_id = self.get_token_id(market_slug, outcome)
+
+        if price is None:
+            price = self._fetch_mid_price(market_slug)
+
+        if not (0.01 <= price <= 0.99):
+            raise ValueError(f"price must be 0.01–0.99, got {price}")
+
+        tp_price, sl_price = self.calculate_exit_levels(price)
+        size = round(amount_usdc / price, 2)
+
+        position_id = f"{market_slug}_{outcome}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+
+        position = {
+            "position_id": position_id,
+            "market_slug": market_slug,
+            "outcome": outcome,
+            "token_id": token_id,
+            "side": "BUY",
+            "entry_price": price,
+            "size_shares": size,
+            "amount_usdc": amount_usdc,
+            "take_profit": tp_price,
+            "stop_loss": sl_price,
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+            "status": "PENDING",
+        }
+
+        is_dry = self.dry_run
+
+        if is_dry:
+            logger.info("DRY RUN — fixed order NOT posted:")
+            for k, v in position.items():
+                logger.info("    %s: %s", k, v)
+            position["status"] = "DRY_RUN"
+        else:
+            if self.client is None:
+                raise RuntimeError(
+                    "Cannot place live trade: no private key configured. "
+                    "Set POLY_PRIVATE_KEY in your .env file."
+                )
+
+            logger.info(
+                "LIVE fixed order: BUY %s %s @ $%.2f (%s shares)",
+                outcome, market_slug, price, size,
+            )
+
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=price,
+                size=size,
+                side=BUY,
+            )
+            signed = self.client.create_order(order_args)
+            response = self.client.post_order(signed, OrderType.GTC)
+            position["order_response"] = response
+            position["order_id"] = (
+                response.get("orderID") or response.get("id")
+                if isinstance(response, dict) else None
+            )
+            position["status"] = "OPEN"
+            logger.info("Order posted: %s", response)
+
+        # Persist to database
+        db.insert_position({
+            "id": position_id,
+            "signal_id": None,
+            "market_slug": market_slug,
+            "token_id": token_id,
+            "outcome": outcome,
+            "side": "BUY",
+            "entry_price": price,
+            "size_shares": size,
+            "amount_usdc": amount_usdc,
+            "status": position["status"],
+            "order_id": position.get("order_id"),
+            "opened_at": position["opened_at"],
+            "dry_run": is_dry,
+        })
+
         return position
 
     # ------------------------------------------------------------------
@@ -399,11 +534,9 @@ class TradingExecutor:
 
     @property
     def open_positions(self) -> Dict[str, Dict[str, Any]]:
-        """Return all currently tracked positions."""
-        return {
-            pid: pos for pid, pos in self._positions.items()
-            if pos["status"] in ("OPEN", "PENDING", "DRY_RUN")
-        }
+        """Return all currently open positions from the database."""
+        rows = db.get_open_positions()
+        return {row["id"]: row for row in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -429,10 +562,6 @@ if __name__ == "__main__":
             args.slug, args.outcome, args.confidence, args.price,
         )
         print(json.dumps(result, indent=2, default=str))
-        # Only wait for the time exit in live mode
-        if args.live:
-            logger.info("Waiting %ds for time exit…", TIME_EXIT_SECONDS + 5)
-            await asyncio.sleep(TIME_EXIT_SECONDS + 5)
 
     asyncio.run(_main())
 

@@ -1,23 +1,15 @@
 """
 Prediction Market Live Tracker
 --------------------------------
-Loads a relationship graph JSON, polls live prices for all markets,
+Polls live prices for all markets loaded from the database,
 detects leader resolutions, and fires alerts to followers.
 
-Schema expected (from teammate's build_graph output):
-  relationships[].leader.id                 -> condition ID (market lookup)
-  relationships[].leader.clob_token_id      -> token ID (live price)
-  relationships[].leader.question           -> human readable title
-  relationships[].followers[].id            -> condition ID
-  relationships[].followers[].clob_token_id -> token ID
-  relationships[].followers[].action        -> "buy" | "sell"
-  relationships[].followers[].confidence    -> 0.0 - 1.0
-  relationships[].followers[].base_bet_size -> dollar amount
-  relationships[].followers[].end_date      -> expiry
+Can be used standalone (python tracker.py) or imported as a library
+with a custom on_resolution callback and asyncio stop_event.
 
 Usage:
-    python tracker.py --graph schema.json
-    python tracker.py --graph schema.json --interval 5
+    python tracker.py                     # loads relationships from DB
+    python tracker.py --interval 5        # custom poll interval
 """
 
 import asyncio
@@ -28,6 +20,8 @@ import logging
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
+
+import database as db
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -160,6 +154,7 @@ def fire_resolution_alert(
     followers: list[dict],
 ):
     """
+    Default resolution callback — used as a fallback for standalone use.
     Called exactly once when a leader resolves.
     Prints a clear alert block with trade signals for each follower.
     """
@@ -206,10 +201,12 @@ def process_update(
     state: MarketState,
     raw: dict,
     followers: Optional[list[dict]] = None,
+    on_resolution=None,
 ):
     """
     Record a new price point and check for resolution trigger.
     `followers` is only passed for leader markets.
+    `on_resolution` is an optional callback(state, outcome, followers) fired on resolution.
     """
     if raw["price"] is None:
         return  # skip — API returned no price this tick
@@ -233,9 +230,21 @@ def process_update(
 
     # Resolution trigger — leaders only, fires exactly once
     if followers and point.resolved and not state.resolution_fired:
-        state.resolution_fired = True
         outcome = point.resolution_value or "UNKNOWN"
-        fire_resolution_alert(state, outcome, followers)
+
+        # Check if already fired in the database (survives restarts)
+        leader_market_id = state.condition_id
+        if db.is_resolution_fired(leader_market_id):
+            log.info(f"Resolution already fired for {state.label}, skipping")
+            state.resolution_fired = True
+            return
+        db.mark_resolution_fired(leader_market_id, outcome)
+
+        state.resolution_fired = True
+        if on_resolution:
+            on_resolution(state, outcome, followers)
+        else:
+            fire_resolution_alert(state, outcome, followers)
 
 # ── Graph loading ───────────────────────────────────────────────────────────────
 
@@ -279,10 +288,70 @@ def load_graph(graph: dict) -> tuple[dict[str, MarketState], dict[str, list[dict
 
     return all_markets, leaders_map
 
+
+def load_from_db() -> tuple[dict[str, MarketState], dict[str, list[dict]]]:
+    """
+    Load relationship data from the database.
+    Returns (all_markets, leaders_map) just like the old load_graph.
+    """
+    relationships = db.get_active_relationships()
+
+    all_markets = {}
+    leaders_map = {}
+
+    for rel in relationships:
+        lid = rel['leader_market_id']
+        l_cond = rel['leader_condition_id']
+        l_clob = rel['leader_clob_token_id']
+        l_question = rel.get('leader_question', lid)
+
+        # Register leader
+        if lid not in all_markets:
+            all_markets[lid] = MarketState(
+                condition_id=l_cond,
+                clob_token_id=l_clob,
+                question=l_question,
+            )
+
+        if lid not in leaders_map:
+            leaders_map[lid] = []
+
+        # Build follower dict matching the old schema format
+        follower = {
+            'id': rel['follower_condition_id'],
+            'market_id': rel['follower_market_id'],
+            'clob_token_id': rel.get('follower_clob_token_id_yes', ''),
+            'clob_token_id_yes': rel.get('follower_clob_token_id_yes', ''),
+            'clob_token_id_no': rel.get('follower_clob_token_id_no', ''),
+            'question': rel.get('follower_question', ''),
+            'slug': rel.get('follower_slug', ''),
+            'confidence': rel.get('confidence', 0.5),
+            'is_same_direction': rel.get('is_same_direction', True),
+            'relationship_type': rel.get('relationship_type', 'direct'),
+            'rationale': rel.get('rationale', ''),
+            'action': 'buy',
+            'base_bet_size': 1.0,
+        }
+        leaders_map[lid].append(follower)
+
+        # Register follower market
+        fid = rel['follower_market_id']
+        f_cond = rel['follower_condition_id']
+        f_clob = rel.get('follower_clob_token_id_yes', '')
+        f_question = rel.get('follower_question', fid)
+        if fid not in all_markets:
+            all_markets[fid] = MarketState(
+                condition_id=f_cond,
+                clob_token_id=f_clob,
+                question=f_question,
+            )
+
+    return all_markets, leaders_map
+
 # ── Main polling loop ───────────────────────────────────────────────────────────
 
-async def run_tracker(graph: dict, interval: int):
-    all_markets, leaders_map = load_graph(graph)
+async def run_tracker(on_resolution=None, stop_event=None, interval=10):
+    all_markets, leaders_map = load_from_db()
 
     n_leaders   = len(leaders_map)
     n_followers = len(all_markets) - n_leaders
@@ -291,7 +360,7 @@ async def run_tracker(graph: dict, interval: int):
     log.info(f"Polling every {interval}s  |  Press Ctrl+C to stop\n")
 
     async with aiohttp.ClientSession() as session:
-        while True:
+        while not (stop_event and stop_event.is_set()):
             poll_start = asyncio.get_event_loop().time()
 
             # Fire all fetches concurrently — one per market
@@ -309,7 +378,7 @@ async def run_tracker(graph: dict, interval: int):
                     continue
                 state     = all_markets[cid]
                 followers = leaders_map.get(cid)  # None for follower markets
-                process_update(state, raw, followers)
+                process_update(state, raw, followers, on_resolution=on_resolution)
 
             # Wait out the remainder of the interval
             elapsed    = asyncio.get_event_loop().time() - poll_start
@@ -320,15 +389,15 @@ async def run_tracker(graph: dict, interval: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Prediction market live tracker")
-    parser.add_argument("--graph",    required=True, help="Path to relationship JSON file")
+    parser.add_argument("--graph",    required=False, help="Path to relationship JSON file (legacy; ignored, loads from DB)")
     parser.add_argument("--interval", type=int, default=10, help="Poll interval in seconds (default: 10)")
     args = parser.parse_args()
 
-    with open(args.graph) as f:
-        graph = json.load(f)
-
     try:
-        asyncio.run(run_tracker(graph, args.interval))
+        asyncio.run(run_tracker(
+            on_resolution=fire_resolution_alert,
+            interval=args.interval,
+        ))
     except KeyboardInterrupt:
         log.info("Tracker stopped.")
 

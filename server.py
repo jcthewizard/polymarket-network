@@ -14,6 +14,7 @@ import threading
 from datetime import datetime
 
 import database as db
+import autotrader
 from urllib.parse import urlparse, parse_qs
 
 PORT = 8000
@@ -127,6 +128,17 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_get_status()
         elif self.path.startswith('/api/backtest/search'):
             self.handle_backtest_search()
+        # Trading endpoints
+        elif self.path == '/api/trading/status':
+            self.handle_trading_status()
+        elif self.path == '/api/trading/positions':
+            self.handle_trading_positions()
+        elif self.path == '/api/trading/signals':
+            self.handle_trading_signals()
+        elif self.path == '/api/trading/relationships':
+            self.handle_trading_relationships()
+        elif self.path == '/api/trading/stream':
+            self.handle_trading_stream()
         # Legacy proxy endpoints (keep for backward compatibility during transition)
         elif self.path.startswith('/api/gamma/'):
             target_path = self.path[len('/api/gamma/'):]
@@ -245,6 +257,14 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_discover()
         elif self.path == '/api/backtest':
             self.handle_backtest()
+        elif self.path == '/api/discover/full':
+            self.handle_discover_full()
+        elif self.path == '/api/trading/start':
+            self.handle_trading_start()
+        elif self.path == '/api/trading/stop':
+            self.handle_trading_stop()
+        elif self.path == '/api/trading/test-resolution':
+            self.handle_test_resolution()
         else:
             self.send_error(404, "Not found")
 
@@ -390,6 +410,202 @@ Respond with ONLY the category name, nothing else."""
                 self.wfile.flush()
             except Exception:
                 pass
+
+    def handle_discover_full(self):
+        """Stream full relationship graph generation as NDJSON events."""
+        import queue as _queue
+
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            top_n = int(data.get('top_n', 20))
+            min_volume = int(data.get('min_volume', 50000))
+            skip_existing = bool(data.get('skip_existing', True))
+
+            if not OPENAI_API_KEY:
+                self.send_error_response(500, 'OPENAI_API_KEY not configured')
+                return
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/x-ndjson')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+
+            eq = _queue.Queue()
+            _SENTINEL = object()
+
+            def _run_worker():
+                try:
+                    import discover_worker
+                    import importlib
+                    importlib.reload(discover_worker)
+                    for event in discover_worker.generate_full_graph_stream(
+                        OPENAI_API_KEY, top_n, min_volume, skip_existing
+                    ):
+                        eq.put(event)
+                except Exception as exc:
+                    eq.put({"type": "error", "message": str(exc)})
+                finally:
+                    eq.put(_SENTINEL)
+
+            worker_thread = threading.Thread(target=_run_worker, daemon=True)
+            worker_thread.start()
+
+            KEEPALIVE_INTERVAL = 15
+
+            while True:
+                try:
+                    event = eq.get(timeout=KEEPALIVE_INTERVAL)
+                except _queue.Empty:
+                    keepalive = json.dumps({"type": "keepalive"}) + '\n'
+                    self.wfile.write(keepalive.encode('utf-8'))
+                    self.wfile.flush()
+                    continue
+
+                if event is _SENTINEL:
+                    break
+
+                line = json.dumps(event) + '\n'
+                self.wfile.write(line.encode('utf-8'))
+                self.wfile.flush()
+
+        except Exception as e:
+            print(f"Discover full error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                error_event = json.dumps({"type": "error", "message": str(e)}) + '\n'
+                self.wfile.write(error_event.encode('utf-8'))
+                self.wfile.flush()
+            except Exception:
+                pass
+
+    # ── Trading endpoints ─────────────────────────────────────
+
+    def handle_trading_status(self):
+        """GET /api/trading/status — current autotrader state."""
+        try:
+            self.send_json_response(autotrader.status())
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_positions(self):
+        """GET /api/trading/positions — recent positions."""
+        try:
+            positions = db.get_recent_positions(limit=100)
+            self.send_json_response(positions)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_signals(self):
+        """GET /api/trading/signals — recent trade signals."""
+        try:
+            signals = db.get_recent_signals(limit=50)
+            self.send_json_response(signals)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_relationships(self):
+        """GET /api/trading/relationships — active leader-follower pairs."""
+        try:
+            rels = db.get_active_relationships()
+            self.send_json_response(rels)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_start(self):
+        """POST /api/trading/start — start autotrader."""
+        try:
+            result = autotrader.start()
+            self.send_json_response(result)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_stop(self):
+        """POST /api/trading/stop — stop autotrader."""
+        try:
+            result = autotrader.stop()
+            self.send_json_response(result)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_test_resolution(self):
+        """POST /api/trading/test-resolution — simulate a leader resolution.
+        Body: { "leader_market_id": "...", "outcome": "YES"|"NO" }
+        If no leader_market_id, returns list of available leaders to pick from."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length:
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+            else:
+                data = {}
+
+            leader_id = data.get('leader_market_id')
+
+            if not leader_id:
+                # Return available leaders
+                rels = db.get_active_relationships()
+                leaders = {}
+                for r in rels:
+                    lid = r["leader_market_id"]
+                    if lid not in leaders:
+                        leaders[lid] = {
+                            "market_id": lid,
+                            "question": r.get("leader_question", ""),
+                            "follower_count": 0,
+                        }
+                    leaders[lid]["follower_count"] += 1
+                self.send_json_response(list(leaders.values()))
+                return
+
+            outcome = data.get('outcome', 'YES').upper()
+            if outcome not in ('YES', 'NO'):
+                self.send_error_response(400, 'outcome must be YES or NO')
+                return
+
+            result = autotrader.simulate_resolution(leader_id, outcome)
+            self.send_json_response(result)
+
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_stream(self):
+        """GET /api/trading/stream — SSE live updates from autotrader.
+        Drains autotrader.event_queue with keepalive pings every 15s.
+        Closes after 60s idle (no real events) to prevent thread exhaustion."""
+        import queue as _queue
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/x-ndjson')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.end_headers()
+
+        KEEPALIVE = 15  # seconds
+        MAX_IDLE = 60   # close after 60s with no real events
+        idle_seconds = 0
+
+        try:
+            while True:
+                try:
+                    evt = autotrader.event_queue.get(timeout=KEEPALIVE)
+                    idle_seconds = 0
+                    line = json.dumps(evt) + '\n'
+                    self.wfile.write(line.encode('utf-8'))
+                    self.wfile.flush()
+                except _queue.Empty:
+                    idle_seconds += KEEPALIVE
+                    if idle_seconds >= MAX_IDLE:
+                        break
+                    keepalive = json.dumps({"type": "keepalive"}) + '\n'
+                    self.wfile.write(keepalive.encode('utf-8'))
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def handle_backtest_search(self):
         """Search for resolved markets from Gamma API (cached)."""
@@ -587,8 +803,8 @@ if __name__ == '__main__':
     db.init_db()
 
     # Start HTTP server (data refreshes on-demand when users visit)
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
     server = socketserver.ThreadingTCPServer(("", PORT), ProxyHTTPRequestHandler)
-    server.allow_reuse_address = True
     with server as httpd:
         print(f"Serving at http://localhost:{PORT}")
         print(f"REST API available at /api/data, /api/data/status")

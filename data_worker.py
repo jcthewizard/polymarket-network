@@ -242,7 +242,10 @@ def refresh_data():
                         'slug': m.get('slug', ''),
                         'volume': volume,
                         'probability': prob,
-                        'clob_token_id': clob_token_id
+                        'clob_token_id': clob_token_id,
+                        'condition_id': m.get('conditionId', ''),
+                        'clob_token_id_yes': clob_ids[0] if len(clob_ids) > 0 else '',
+                        'clob_token_id_no': clob_ids[1] if len(clob_ids) > 1 else '',
                     })
         except Exception as e:
             continue
