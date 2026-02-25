@@ -350,53 +350,49 @@ def load_from_db() -> tuple[dict[str, MarketState], dict[str, list[dict]]]:
 
 # ── Main polling loop ───────────────────────────────────────────────────────────
 
-async def run_tracker(on_resolution=None, stop_event=None, interval=10):
+async def run_tracker(on_resolution=None, stop_event=None, interval=10, per_market_delay=0.2):
     all_markets, leaders_map = load_from_db()
 
     n_leaders   = len(leaders_map)
     n_followers = len(all_markets) - n_leaders
 
     log.info(f"Graph loaded — {n_leaders} leaders, {n_followers} followers, {len(all_markets)} total markets")
-    log.info(f"Polling every {interval}s  |  Press Ctrl+C to stop\n")
+    cycle_time = len(all_markets) * per_market_delay
+    log.info(f"Cycling through markets with {per_market_delay}s delay (~{cycle_time:.0f}s per full cycle)")
+    log.info(f"Press Ctrl+C to stop\n")
+
+    # Build ordered list — leaders first so resolutions are detected faster
+    market_ids = list(leaders_map.keys()) + [cid for cid in all_markets if cid not in leaders_map]
 
     async with aiohttp.ClientSession() as session:
         while not (stop_event and stop_event.is_set()):
-            poll_start = asyncio.get_event_loop().time()
+            for cid in market_ids:
+                if stop_event and stop_event.is_set():
+                    break
 
-            # Fire all fetches concurrently — one per market
-            tasks = {
-                cid: fetch_market_data(session, state.condition_id, state.clob_token_id)
-                for cid, state in all_markets.items()
-            }
-            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-            fetched = dict(zip(tasks.keys(), results))
+                state = all_markets[cid]
+                try:
+                    raw = await fetch_market_data(session, state.condition_id, state.clob_token_id)
+                    followers = leaders_map.get(cid)
+                    process_update(state, raw, followers, on_resolution=on_resolution)
+                except Exception as exc:
+                    log.warning(f"Exception for {cid}: {exc}")
 
-            # Process results
-            for cid, raw in fetched.items():
-                if isinstance(raw, Exception):
-                    log.warning(f"Exception for {cid}: {raw}")
-                    continue
-                state     = all_markets[cid]
-                followers = leaders_map.get(cid)  # None for follower markets
-                process_update(state, raw, followers, on_resolution=on_resolution)
-
-            # Wait out the remainder of the interval
-            elapsed    = asyncio.get_event_loop().time() - poll_start
-            sleep_time = max(0, interval - elapsed)
-            await asyncio.sleep(sleep_time)
+                await asyncio.sleep(per_market_delay)
 
 # ── Entrypoint ──────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="Prediction market live tracker")
     parser.add_argument("--graph",    required=False, help="Path to relationship JSON file (legacy; ignored, loads from DB)")
-    parser.add_argument("--interval", type=int, default=10, help="Poll interval in seconds (default: 10)")
+    parser.add_argument("--interval", type=int, default=10, help="(deprecated, use --delay)")
+    parser.add_argument("--delay", type=float, default=0.2, help="Delay between market polls in seconds (default: 0.2)")
     args = parser.parse_args()
 
     try:
         asyncio.run(run_tracker(
             on_resolution=fire_resolution_alert,
-            interval=args.interval,
+            per_market_delay=args.delay,
         ))
     except KeyboardInterrupt:
         log.info("Tracker stopped.")
