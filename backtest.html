@@ -13,9 +13,105 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Live/Historical toggle */
+        .mode-toggle {
+            display: inline-flex;
+            background: #f1f5f9;
+            border-radius: 0.75rem;
+            padding: 3px;
+            gap: 2px;
+        }
+
+        .mode-toggle button {
+            padding: 6px 16px;
+            border-radius: 0.625rem;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+            color: #64748b;
+            border: none;
+            cursor: pointer;
+            background: transparent;
+        }
+
+        .mode-toggle button.active {
+            background: white;
+            color: #0f172a;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .mode-toggle button:not(.active):hover {
+            color: #334155;
+        }
+
+        /* Holding period segmented control */
+        .timeframe-toggle {
+            display: inline-flex;
+            background: #f1f5f9;
+            border-radius: 0.5rem;
+            padding: 2px;
+            gap: 1px;
+        }
+
+        .timeframe-toggle button {
+            padding: 4px 12px;
+            border-radius: 0.375rem;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: ui-monospace, monospace;
+            transition: all 0.15s;
+            color: #64748b;
+            border: none;
+            cursor: pointer;
+            background: transparent;
+        }
+
+        .timeframe-toggle button.active {
+            background: #0f172a;
+            color: white;
+        }
+
+        .timeframe-toggle button:not(.active):hover {
+            color: #334155;
+            background: #e2e8f0;
+        }
+
+        /* Results panel slide-up animation */
+        #results-panel {
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+
+        #results-panel.collapsed {
+            transform: translateY(calc(100% - 48px));
+        }
+
+        /* Slider styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #0f172a;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+    </style>
 </head>
 
 <body class="bg-slate-50 font-[Inter]">
+
+    <!-- Graph Container (hidden until results) -->
+    <div id="discover-viz" class="fixed inset-0 hidden"></div>
 
     <!-- Header -->
     <header class="fixed top-0 left-0 right-0 z-40 px-4 md:px-6 pt-4 md:pt-6 pointer-events-none">
@@ -32,13 +128,13 @@
                 </div>
                 <h1 class="text-xl md:text-3xl font-bold text-slate-900 tracking-tight mt-1">Resolution Shock Backtest
                 </h1>
-                <p class="text-slate-500 text-xs md:text-sm mt-1">What happens to related markets when a leader
-                    resolves?</p>
+                <p class="text-slate-500 text-xs md:text-sm mt-1">Discover correlated markets and backtest resolution
+                    shock</p>
             </div>
             <div class="flex gap-3">
-                <button id="new-backtest-btn"
+                <button id="new-search-btn"
                     class="hidden bg-white hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 shadow-sm hover:shadow-md">
-                    New Backtest
+                    New Search
                 </button>
             </div>
         </div>
@@ -50,8 +146,8 @@
             <!-- Title -->
             <div id="panel-title" class="text-center mb-8">
                 <h2 class="text-2xl md:text-3xl font-bold text-slate-900">Resolution Shock Backtest</h2>
-                <p class="text-slate-500 mt-2 text-sm md:text-base">Pick a date to find resolved markets, then see how
-                    related markets reacted</p>
+                <p class="text-slate-500 mt-2 text-sm md:text-base">Search for a market, discover correlations, and
+                    backtest the resolution shock</p>
             </div>
 
             <!-- Card -->
@@ -59,34 +155,76 @@
                 class="rounded-2xl shadow-lg border overflow-visible transition-all duration-300 bg-white border-slate-200">
                 <!-- Search Form Contents -->
                 <div id="search-form" class="p-6 space-y-4">
-                    <!-- Date Picker -->
-                    <div>
-                        <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Select
-                            a Date</label>
-                        <input type="date" id="backtest-date"
-                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                            value="">
+
+                    <!-- Live / Historical Toggle -->
+                    <div class="flex justify-center">
+                        <div class="mode-toggle">
+                            <button id="mode-live" class="active" data-mode="live">
+                                <span class="inline-flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                    Live
+                                </span>
+                            </button>
+                            <button id="mode-historical" data-mode="historical">
+                                <span class="inline-flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Historical
+                                </span>
+                            </button>
+                        </div>
                     </div>
 
-                    <!-- Market List (populated after date selection) -->
-                    <div id="market-list-container" class="hidden">
-                        <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Resolved
-                            Markets on This Date</label>
-                        <div id="market-list"
-                            class="max-h-60 overflow-y-auto border border-slate-200 rounded-xl bg-slate-50">
+                    <!-- Live Mode: Search Input -->
+                    <div id="live-search-section">
+                        <div class="relative">
+                            <input type="text" id="live-search-input" placeholder="Search for a market..."
+                                class="w-full px-4 py-3 pl-11 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                autocomplete="off">
+                            <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none"
+                                stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <!-- Autocomplete Dropdown -->
+                            <div id="live-search-results"
+                                class="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto hidden z-50">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Historical Mode: Date Picker + Market List -->
+                    <div id="historical-search-section" class="hidden space-y-4">
+                        <div>
+                            <label
+                                class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Select
+                                a Date</label>
+                            <input type="date" id="backtest-date"
+                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                value="">
+                        </div>
+                        <div id="market-list-container" class="hidden">
+                            <label
+                                class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Resolved
+                                Markets</label>
+                            <div id="market-list"
+                                class="max-h-60 overflow-y-auto border border-slate-200 rounded-xl bg-slate-50">
+                            </div>
                         </div>
                     </div>
 
                     <!-- Selected Market Display -->
                     <div id="selected-market" class="hidden">
                         <div
-                            class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                            class="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
                             <div class="flex-1 min-w-0">
-                                <p id="selected-market-name" class="text-sm font-medium text-emerald-900 truncate"></p>
-                                <p id="selected-market-meta" class="text-xs text-emerald-600 mt-0.5"></p>
+                                <p id="selected-market-name" class="text-sm font-medium text-blue-900 truncate"></p>
+                                <p id="selected-market-meta" class="text-xs text-blue-600 mt-0.5"></p>
                             </div>
                             <button id="clear-selection-btn"
-                                class="ml-3 p-1 text-emerald-400 hover:text-emerald-700 transition-colors flex-shrink-0">
+                                class="ml-3 p-1 text-blue-400 hover:text-blue-700 transition-colors flex-shrink-0">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                         d="M6 18L18 6M6 6l12 12" />
@@ -96,145 +234,275 @@
                     </div>
 
                     <!-- Run Button -->
-                    <button id="backtest-btn" disabled
-                        class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm shadow-sm">
-                        Run Backtest
+                    <button id="run-btn" disabled
+                        class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm shadow-sm">
+                        Discover Correlations
                     </button>
                 </div>
 
-                <!-- Progress Log (hidden until backtest starts) -->
+                <!-- Progress Log (hidden until discovery starts) -->
                 <div id="progress-log" class="hidden p-6">
                     <div id="progress-body" class="max-h-[50vh] overflow-y-auto">
                     </div>
                 </div>
             </div>
+
+            <!-- Recent Backtests History -->
+            <div id="history-section" class="hidden mt-4">
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Recent Backtests</h3>
+                    <button id="clear-history-btn"
+                        class="text-[10px] text-slate-400 hover:text-red-500 transition-colors">Clear</button>
+                </div>
+                <div id="history-list" class="space-y-2 max-h-48 overflow-y-auto">
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Results Container (hidden until done) -->
-    <div id="results-container" class="hidden pt-28 pb-8 px-4 md:px-8 max-w-5xl mx-auto">
-        <!-- Summary Card -->
-        <div id="summary-card" class="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 md:p-8 mb-6">
-            <div class="flex flex-col gap-4">
-                <div class="flex-1 min-w-0">
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Leader Market</p>
-                    <p id="summary-leader" class="text-base font-semibold text-slate-900 leading-tight"></p>
-                    <div class="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
-                        <span id="summary-resolution"></span>
-                        <span id="summary-trade-count"></span>
+    <!-- Sidebar (shown alongside graph) -->
+    <div id="discovery-sidebar"
+        class="fixed top-36 left-4 z-30 w-80 max-h-[calc(100vh-10rem)] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-lg transition-all duration-300 translate-x-[-120%] pointer-events-auto overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
+            <div class="flex items-center gap-1">
+                <button id="sidebar-tab-list"
+                    class="px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-800 text-white transition-colors">Followers</button>
+                <button id="sidebar-tab-log"
+                    class="px-2.5 py-1 text-xs font-semibold rounded-md text-slate-500 hover:bg-slate-100 transition-colors">Log</button>
+            </div>
+            <button id="toggle-sidebar-btn" class="text-slate-400 hover:text-slate-600 transition-colors p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7" />
+                </svg>
+            </button>
+        </div>
+        <div id="sidebar-list" class="overflow-y-auto flex-1"></div>
+        <div id="sidebar-steps" class="p-4 space-y-3 overflow-y-auto flex-1 hidden"></div>
+    </div>
+
+    <!-- Sidebar collapsed tab -->
+    <button id="expand-sidebar-btn"
+        class="fixed top-36 left-4 z-30 hidden bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-lg px-3 py-2 hover:bg-slate-50 transition-all duration-200 pointer-events-auto">
+        <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <span class="text-xs font-medium text-slate-600">Results</span>
+            <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7" />
+            </svg>
+        </div>
+    </button>
+
+    <!-- Results Panel (slides up from bottom, hidden until backtest completes) -->
+    <div id="results-panel" class="fixed bottom-0 left-0 right-0 z-30 hidden">
+        <div
+            class="bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl rounded-t-2xl max-h-[70vh] overflow-hidden flex flex-col">
+
+            <!-- Drag handle + toggle -->
+            <div id="results-panel-header"
+                class="flex items-center justify-between px-6 py-3 border-b border-slate-100 cursor-pointer flex-shrink-0">
+                <div class="flex items-center gap-4">
+                    <div class="w-8 h-1 bg-slate-300 rounded-full"></div>
+                    <h3 class="text-sm font-semibold text-slate-700">Backtest Results</h3>
+                    <span id="results-trade-count" class="text-xs text-slate-400"></span>
+                </div>
+                <button id="results-toggle-btn" class="text-slate-400 hover:text-slate-600 p-1">
+                    <svg class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Controls bar -->
+            <div id="results-controls"
+                class="px-6 py-3 border-b border-slate-100 flex-shrink-0 flex flex-wrap items-center gap-6">
+                <!-- Holding Period -->
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Holding Period</span>
+                    <div class="timeframe-toggle" id="timeframe-toggle">
+                        <button data-tf="5m">5m</button>
+                        <button data-tf="1h">1h</button>
+                        <button data-tf="1d" class="active">1d</button>
+                        <button data-tf="1w">1w</button>
                     </div>
                 </div>
-                <!-- Multi-timeframe summary -->
-                <div class="grid grid-cols-4 gap-3 mt-2">
-                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                <!-- Min Confidence -->
+                <div class="flex items-center gap-3 flex-1 min-w-[200px]">
+                    <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Min
+                        Confidence</span>
+                    <input type="range" id="confidence-slider" min="0" max="100" step="5" value="0" class="flex-1">
+                    <span id="confidence-display"
+                        class="text-xs font-mono font-semibold text-slate-700 w-8 text-right">0%</span>
+                </div>
+            </div>
+
+            <!-- Scrollable results content -->
+            <div class="overflow-y-auto flex-1 p-6 space-y-6">
+                <!-- Summary Card -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div class="col-span-2 md:col-span-1 bg-slate-50 rounded-xl p-3">
+                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">Leader</p>
+                        <p id="summary-leader" class="text-xs font-semibold text-slate-900 leading-tight"></p>
+                        <p id="summary-resolution" class="text-[10px] text-slate-400 mt-1"></p>
+                    </div>
+                    <div class="bg-slate-50 rounded-xl p-3 text-center">
                         <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">5 min</p>
                         <p id="summary-pnl-5m" class="text-lg font-bold"></p>
                     </div>
-                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                    <div class="bg-slate-50 rounded-xl p-3 text-center">
                         <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1 hour</p>
                         <p id="summary-pnl-1h" class="text-lg font-bold"></p>
                     </div>
-                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                    <div class="bg-slate-50 rounded-xl p-3 text-center">
                         <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1 day</p>
                         <p id="summary-pnl-1d" class="text-lg font-bold"></p>
                     </div>
-                    <div class="text-center bg-slate-50 rounded-lg p-3">
+                    <div class="bg-slate-50 rounded-xl p-3 text-center">
                         <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1 week</p>
                         <p id="summary-pnl-1w" class="text-lg font-bold"></p>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Trades Table -->
-        <div class="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-6">
-            <div class="px-6 py-4 border-b border-slate-100">
-                <h3 class="text-sm font-semibold text-slate-700">Individual Trades</h3>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="backtest-results-table w-full text-sm">
-                    <thead>
-                        <tr class="bg-slate-50 text-left">
-                            <th class="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Market
-                            </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dir
-                            </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Entry
-                            </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">5m
-                            </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">1h
-                            </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">1d
-                            </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">1w
-                            </th>
-                            <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Conf
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody id="trades-tbody">
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                <!-- Trades Table -->
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="backtest-results-table w-full text-sm">
+                            <thead>
+                                <tr class="bg-slate-50 text-left">
+                                    <th
+                                        class="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        Market</th>
+                                    <th
+                                        class="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        Dir</th>
+                                    <th
+                                        class="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        Entry</th>
+                                    <th
+                                        class="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        P&L</th>
+                                    <th
+                                        class="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        Conf</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
 
-        <!-- P&L Bar Chart -->
-        <div class="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
-            <h3 class="text-sm font-semibold text-slate-700 mb-4">P&L by Trade (1 Day)</h3>
-            <div id="pnl-chart"></div>
+                <!-- P&L Chart -->
+                <div>
+                    <h3 id="pnl-chart-title" class="text-sm font-semibold text-slate-700 mb-3">P&L by Trade</h3>
+                    <div id="pnl-chart"></div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Trade Rationale Modal -->
-    <div id="rationale-modal"
+    <!-- Relationship Modal (from discover) -->
+    <div id="relationship-modal"
         class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center">
         <div
-            class="modal-content bg-white rounded-2xl shadow-2xl w-[480px] max-w-[90vw] transform transition-all duration-200 scale-95 opacity-0">
+            class="modal-content bg-white rounded-2xl shadow-2xl w-[520px] max-w-[90vw] transform transition-all duration-200 scale-95 opacity-0">
             <div class="flex justify-between items-start p-6 border-b border-slate-200">
                 <div class="flex-1 min-w-0 pr-4">
-                    <h2 class="text-sm text-slate-500 mb-1">Trade Analysis</h2>
-                    <div id="modal-trade-name" class="text-base font-semibold leading-tight text-slate-900"></div>
+                    <h2 class="text-sm text-slate-500 mb-1">Relationship Analysis</h2>
+                    <div id="modal-title" class="text-base font-semibold leading-tight text-slate-900"></div>
                 </div>
-                <button id="close-rationale-btn" class="text-slate-400 hover:text-slate-700 transition-colors">
-                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
+                <div class="flex items-center gap-3 flex-shrink-0">
+                    <span id="modal-confidence" class="px-3 py-1 rounded-full text-sm font-semibold"></span>
+                    <button id="close-modal-btn" class="text-slate-400 hover:text-slate-700 transition-colors">
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="p-6 space-y-4">
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="bg-slate-50 rounded-lg p-3 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">Direction</p>
-                        <p id="modal-direction" class="text-sm font-bold"></p>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-500 uppercase tracking-wider font-semibold">Outcome:</span>
+                        <span id="modal-outcome-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold"></span>
                     </div>
-                    <div class="bg-slate-50 rounded-lg p-3 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">Entry Price</p>
-                        <p id="modal-entry" class="text-sm font-mono font-medium text-slate-700"></p>
-                    </div>
-                </div>
-                <div class="grid grid-cols-4 gap-2">
-                    <div class="bg-slate-50 rounded-lg p-2 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">5m</p>
-                        <p id="modal-pnl-5m" class="text-sm font-bold"></p>
-                    </div>
-                    <div class="bg-slate-50 rounded-lg p-2 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1h</p>
-                        <p id="modal-pnl-1h" class="text-sm font-bold"></p>
-                    </div>
-                    <div class="bg-slate-50 rounded-lg p-2 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1d</p>
-                        <p id="modal-pnl-1d" class="text-sm font-bold"></p>
-                    </div>
-                    <div class="bg-slate-50 rounded-lg p-2 text-center">
-                        <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1w</p>
-                        <p id="modal-pnl-1w" class="text-sm font-bold"></p>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-500 uppercase tracking-wider font-semibold">Type:</span>
+                        <span id="modal-type-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold"></span>
                     </div>
                 </div>
+                <!-- Confidence Bar -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-xs text-slate-500 uppercase tracking-wider font-semibold">Confidence</span>
+                        <span id="modal-confidence-pct" class="text-sm font-mono font-semibold text-slate-700"></span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2">
+                        <div id="modal-confidence-bar" class="h-2 rounded-full transition-all duration-500"></div>
+                    </div>
+                </div>
+                <!-- P&L row (only shown for backtest trades) -->
+                <div id="modal-pnl-section" class="hidden">
+                    <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-2">P&L by Timeframe</h3>
+                    <div class="grid grid-cols-4 gap-2">
+                        <div class="bg-slate-50 rounded-lg p-2 text-center">
+                            <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">5m</p>
+                            <p id="modal-pnl-5m" class="text-sm font-bold"></p>
+                        </div>
+                        <div class="bg-slate-50 rounded-lg p-2 text-center">
+                            <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1h</p>
+                            <p id="modal-pnl-1h" class="text-sm font-bold"></p>
+                        </div>
+                        <div class="bg-slate-50 rounded-lg p-2 text-center">
+                            <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1d</p>
+                            <p id="modal-pnl-1d" class="text-sm font-bold"></p>
+                        </div>
+                        <div class="bg-slate-50 rounded-lg p-2 text-center">
+                            <p class="text-[10px] text-slate-400 uppercase font-semibold mb-1">1w</p>
+                            <p id="modal-pnl-1w" class="text-sm font-bold"></p>
+                        </div>
+                    </div>
+                </div>
+                <!-- Rationale -->
                 <div>
                     <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-2">AI Rationale</h3>
                     <p id="modal-rationale" class="text-sm text-slate-700 leading-relaxed"></p>
+                </div>
+                <!-- Market Details -->
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <div class="bg-slate-50 rounded-lg p-3">
+                        <p class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Leader</p>
+                        <p id="modal-leader-name" class="text-xs text-slate-700 font-medium leading-tight"></p>
+                        <p id="modal-leader-meta" class="text-[10px] text-slate-400 mt-1"></p>
+                    </div>
+                    <div class="bg-slate-50 rounded-lg p-3">
+                        <p class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Follower</p>
+                        <p id="modal-follower-name" class="text-xs text-slate-700 font-medium leading-tight"></p>
+                        <p id="modal-follower-meta" class="text-[10px] text-slate-400 mt-1"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div id="tooltip" class="opacity-0 transform scale-95 hidden">
+        <div class="bg-white/95 backdrop-blur-md border border-slate-200 p-4 rounded-xl shadow-xl w-64">
+            <div class="flex justify-between items-start mb-2">
+                <h3 id="tooltip-title" class="font-bold text-slate-900 text-sm leading-tight"></h3>
+                <span id="tooltip-category"
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium border border-slate-200"></span>
+            </div>
+            <div class="space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <span class="text-slate-500">Probability</span>
+                    <span id="tooltip-prob" class="font-mono font-semibold text-green-600"></span>
+                </div>
+                <div class="flex justify-between items-center text-xs">
+                    <span class="text-slate-500">Volume</span>
+                    <span id="tooltip-vol" class="font-mono text-slate-700"></span>
                 </div>
             </div>
         </div>
