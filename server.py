@@ -14,6 +14,7 @@ import threading
 from datetime import datetime
 
 import database as db
+from llm_utils import call_openai_chat_text
 from urllib.parse import urlparse, parse_qs
 
 PORT = 8000
@@ -283,6 +284,12 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             data = json.loads(post_data.decode('utf-8'))
             
             question = data.get('question', '')
+            if not question:
+                self.send_error_response(400, 'question is required')
+                return
+            if not OPENAI_API_KEY:
+                self.send_error_response(500, 'OPENAI_API_KEY not configured')
+                return
             
             # Call OpenAI API
             prompt = f"""Classify this prediction market question into exactly one of these categories:
@@ -292,35 +299,27 @@ Market question: "{question}"
 
 Respond with ONLY the category name, nothing else."""
 
-            openai_payload = {
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 20,
-                "temperature": 0
-            }
-            
-            req = urllib.request.Request(
-                "https://api.openai.com/v1/chat/completions",
-                data=json.dumps(openai_payload).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {OPENAI_API_KEY}'
-                }
+            category = call_openai_chat_text(
+                messages=[{"role": "user", "content": prompt}],
+                model="gpt-4o-mini",
+                openai_api_key=OPENAI_API_KEY,
+                timeout=45,
+                payload_overrides={
+                    "max_tokens": 20,
+                    "temperature": 0,
+                },
+                max_retries=6,
             )
-            
-            with urllib.request.urlopen(req) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                category = result['choices'][0]['message']['content'].strip()
-                
-                # Validate category is in our list
-                if category not in CATEGORIES:
-                    category = "Other"
-                
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps({"category": category}).encode('utf-8'))
+
+            # Validate category is in our list
+            if category not in CATEGORIES:
+                category = "Other"
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"category": category}).encode('utf-8'))
                 
         except Exception as e:
             print(f"Classification error: {e}")

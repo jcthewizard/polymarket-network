@@ -8,12 +8,16 @@ import os
 import json
 import time
 import math
-import urllib.request
-import urllib.error
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 import database as db
+from llm_utils import (
+    CLOB_RATE_LIMITER,
+    GAMMA_RATE_LIMITER,
+    call_openai_chat_text,
+    fetch_json_with_retries,
+)
 
 # Load environment variables
 def load_dotenv():
@@ -45,6 +49,11 @@ def log(message: str):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
 
 
+def normalize_question(question: str) -> str:
+    """Normalize market question text for lightweight cache hits."""
+    return " ".join((question or "").strip().lower().split())
+
+
 def fetch_markets() -> List[Dict]:
     """Fetch ALL markets from Polymarket Gamma API using pagination."""
     all_markets = []
@@ -55,24 +64,22 @@ def fetch_markets() -> List[Dict]:
         url = f"https://gamma-api.polymarket.com/markets?active=true&closed=false&limit={limit}&offset={offset}"
         
         try:
-            req = urllib.request.Request(
+            markets = fetch_json_with_retries(
                 url,
-                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+                timeout=30,
+                rate_limiter=GAMMA_RATE_LIMITER,
+                max_retries=5,
             )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                markets = json.loads(response.read().decode('utf-8'))
-                
-                if not markets:
-                    break  # No more markets
-                
-                all_markets.extend(markets)
-                
-                if len(markets) < limit:
-                    break  # Last page
-                
-                offset += limit
-                time.sleep(0.2)  # Small delay between requests
-                
+            if not markets:
+                break  # No more markets
+
+            all_markets.extend(markets)
+
+            if len(markets) < limit:
+                break  # Last page
+
+            offset += limit
+            time.sleep(0.1)
         except Exception as e:
             log(f"Error fetching markets at offset {offset}: {e}")
             break
@@ -84,16 +91,17 @@ def fetch_markets() -> List[Dict]:
 def fetch_market_history(clob_token_id: str) -> Optional[List[Dict]]:
     """Fetch price history for a market."""
     url = f"https://clob.polymarket.com/prices-history?market={clob_token_id}&interval=1d&fidelity=60"
-    
+
     try:
-        req = urllib.request.Request(
+        data = fetch_json_with_retries(
             url,
-            headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+            timeout=30,
+            rate_limiter=CLOB_RATE_LIMITER,
+            max_retries=5,
         )
-        with urllib.request.urlopen(req, timeout=30) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            return data.get('history', [])
+        return data.get('history', [])
     except Exception as e:
+        log(f"CLOB history fetch error for {clob_token_id[:12]}...: {e}")
         return None
 
 
@@ -101,7 +109,7 @@ def classify_with_llm(question: str) -> str:
     """Classify a market question using OpenAI gpt-4o-mini."""
     if not OPENAI_API_KEY:
         return "Other"
-    
+
     prompt = f"""Classify this prediction market question into exactly one of these categories:
 {', '.join(CATEGORIES)}
 
@@ -109,32 +117,25 @@ Market question: "{question}"
 
 Respond with ONLY the category name, nothing else."""
 
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 20,
-        "temperature": 0
-    }
-    
+
     try:
-        req = urllib.request.Request(
-            "https://api.openai.com/v1/chat/completions",
-            data=json.dumps(payload).encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {OPENAI_API_KEY}'
-            }
+        category = call_openai_chat_text(
+            messages=[{"role": "user", "content": prompt}],
+            model="gpt-4o-mini",
+            openai_api_key=OPENAI_API_KEY,
+            timeout=45,
+            payload_overrides={
+                "max_tokens": 20,
+                "temperature": 0,
+            },
+            max_retries=6,
         )
-        
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            category = result['choices'][0]['message']['content'].strip()
-            
-            if category in CATEGORIES:
-                return category
+
+        if category in CATEGORIES:
+            return category
     except Exception as e:
         log(f"LLM classification error: {e}")
-    
+
     return "Other"
 
 
@@ -205,6 +206,11 @@ def refresh_data():
     # 1. Cache existing categories so we don't have to re-classify
     category_cache = db.get_all_categories()
     log(f"Cached {len(category_cache)} existing categories")
+    question_category_cache = {}
+    for existing_market in db.get_all_markets():
+        existing_category = existing_market.get('category', 'Other')
+        if existing_category and existing_category != 'Other':
+            question_category_cache[normalize_question(existing_market.get('name', ''))] = existing_category
     
     # 2. Fetch markets from API
     raw_markets = fetch_markets()
@@ -256,10 +262,16 @@ def refresh_data():
         # Check if already has category in cache
         if market['id'] in category_cache:
             market['category'] = category_cache[market['id']]
+            question_category_cache[normalize_question(market['name'])] = market['category']
         else:
-            # Classify with LLM
-            market['category'] = classify_with_llm(market['name'])
-            log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
+            normalized = normalize_question(market['name'])
+            if normalized in question_category_cache:
+                market['category'] = question_category_cache[normalized]
+            else:
+                # Classify with LLM
+                market['category'] = classify_with_llm(market['name'])
+                question_category_cache[normalized] = market['category']
+                log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
 
         # Only fetch history for markets above correlation threshold
         if market['volume'] >= MIN_VOLUME_CORRELATE:

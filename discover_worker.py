@@ -6,18 +6,19 @@ Uses a two-pass LLM approach:
 Streams progress events so the frontend can show a live log.
 """
 
-import json
+import os
 import time
-import urllib.request
-import urllib.error
 from difflib import SequenceMatcher
 from typing import List, Dict, Optional, Generator
 
 import database as db
+from llm_utils import call_openai_chat_json
 
 # Configuration
 LLM_MODEL = "gpt-5.2"
 FUZZY_MATCH_THRESHOLD = 0.6  # For matching LLM output back to exact market names
+LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "6"))
+DISCOVER_BATCH_SIZE = int(os.environ.get("DISCOVER_LLM_BATCH_SIZE", "50"))
 
 
 def _fuzzy_match(text: str, candidates: List[str], threshold: float = FUZZY_MATCH_THRESHOLD) -> Optional[str]:
@@ -36,40 +37,20 @@ def _fuzzy_match(text: str, candidates: List[str], threshold: float = FUZZY_MATC
 
 def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout: int = 180, on_retry=None) -> Dict:
     """Make an OpenAI chat completion call and return parsed JSON response.
-    Retries up to 3 times with backoff on rate limit (429) errors.
+    Retries with exponential backoff on transient errors/rate limits.
     on_retry(attempt, max_retries, wait_seconds) is called before each retry."""
-    max_retries = 3
-    payload = {
-        "model": model,
-        "messages": messages,
-        "reasoning_effort": "high",
-        "response_format": {"type": "json_object"},
-    }
-
-    for attempt in range(max_retries):
-        req = urllib.request.Request(
-            "https://api.openai.com/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {openai_api_key}",
-            },
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                result = json.loads(response.read().decode("utf-8"))
-                content = result["choices"][0]["message"]["content"]
-                return json.loads(content)
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            if e.code == 429 and attempt < max_retries - 1:
-                wait = 10 * (attempt + 1)  # 10s, 20s
-                if on_retry:
-                    on_retry(attempt + 1, max_retries, wait)
-                time.sleep(wait)
-                continue
-            raise RuntimeError(f"OpenAI API {e.code}: {body}") from e
+    return call_openai_chat_json(
+        messages=messages,
+        model=model,
+        openai_api_key=openai_api_key,
+        timeout=timeout,
+        payload_overrides={
+            "reasoning_effort": "high",
+            "response_format": {"type": "json_object"},
+        },
+        max_retries=LLM_MAX_RETRIES,
+        on_retry=on_retry,
+    )
 
 
 def _get_active_categories(candidates: List[Dict]) -> List[str]:
@@ -297,7 +278,7 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
         yield {"type": "result", "message": f"{len(candidates)} → {len(filtered_candidates)} candidates after category filter", "data": {"count": len(filtered_candidates)}}
 
     # 6. Pass 2: Batched relationship discovery
-    BATCH_SIZE = 150
+    BATCH_SIZE = max(10, DISCOVER_BATCH_SIZE)
     candidate_map = {m["name"]: m for m in filtered_candidates}
     all_candidate_questions = [m["name"] for m in filtered_candidates]
 
@@ -329,6 +310,9 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
                 yield evt
             retry_events.clear()
             yield {"type": "result", "message": f"Batch {batch_num}/{total_batches}: skipped ({str(e)[:80]})"}
+
+        if batch_idx < total_batches - 1:
+            time.sleep(0.15)
 
     if not raw_followers:
         yield {"type": "result", "message": f"No potential followers identified across {total_batches} batches"}

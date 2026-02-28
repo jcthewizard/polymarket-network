@@ -9,10 +9,9 @@ Algorithm:
 Streams progress events so the frontend can show a live log.
 """
 
+import os
 import json
 import time
-import urllib.request
-import urllib.error
 from datetime import datetime
 from typing import List, Dict, Optional, Generator
 
@@ -23,6 +22,7 @@ from discover_worker import (
     _fuzzy_match,
     _get_active_categories,
 )
+from llm_utils import CLOB_RATE_LIMITER, GAMMA_RATE_LIMITER, fetch_json_with_retries
 
 # Timeframes to measure P&L at (seconds after resolution)
 TIMEFRAMES = {
@@ -39,6 +39,8 @@ TOLERANCES = {
     "1d": 2 * 60 * 60,
     "1w": 6 * 60 * 60,
 }
+
+BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
 
 
 def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
@@ -65,22 +67,22 @@ def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
                 f"&order=volume&ascending=false"
             )
             try:
-                req = urllib.request.Request(
+                markets = fetch_json_with_retries(
                     url,
-                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
+                    timeout=30,
+                    rate_limiter=GAMMA_RATE_LIMITER,
+                    max_retries=5,
                 )
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    markets = json.loads(response.read().decode("utf-8"))
-                    if not markets:
-                        break
-                    all_markets.extend(markets)
-                    fetched += len(markets)
-                    if len(markets) < limit:
-                        break
-                    offset += limit
-                    if offset >= max_count:
-                        break
-                    time.sleep(0.2)
+                if not markets:
+                    break
+                all_markets.extend(markets)
+                fetched += len(markets)
+                if len(markets) < limit:
+                    break
+                offset += limit
+                if offset >= max_count:
+                    break
+                time.sleep(0.1)
             except Exception as e:
                 print(f"[Backtest] Error fetching from Gamma at offset {offset}: {e}")
                 break
@@ -134,27 +136,20 @@ def _fetch_price_history(clob_token_id: str, fidelity: int = 60) -> Optional[Lis
     url = f"https://clob.polymarket.com/prices-history?market={clob_token_id}&interval=max&fidelity={fidelity}"
     print(f"[Backtest] Fetching: {url}")
     try:
-        req = urllib.request.Request(
+        data = fetch_json_with_retries(
             url,
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
+            timeout=30,
+            rate_limiter=CLOB_RATE_LIMITER,
+            max_retries=5,
         )
-        with urllib.request.urlopen(req, timeout=30) as response:
-            raw = response.read().decode("utf-8")
-            print(f"[Backtest] Response ({len(raw)} bytes): {raw[:200]}")
-            data = json.loads(raw)
-            history = data.get("history", [])
-            if history:
-                print(f"[Backtest] Got {len(history)} price points")
-                return history
-            else:
-                print(f"[Backtest] Empty history. Full response keys: {list(data.keys())}")
-                return None
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:200]
-        print(f"[Backtest] HTTP {e.code}: {body}")
+        history = data.get("history", [])
+        if history:
+            print(f"[Backtest] Got {len(history)} price points")
+            return history
+        print(f"[Backtest] Empty history. Full response keys: {list(data.keys())}")
         return None
     except Exception as e:
-        print(f"[Backtest] Error: {type(e).__name__}: {e}")
+        print(f"[Backtest] Price fetch error: {e}")
         return None
 
 
@@ -329,7 +324,7 @@ def run_backtest_stream(
         }
 
     # Pass 2: Relationship discovery (batched)
-    BATCH_SIZE = 150
+    BATCH_SIZE = max(10, BACKTEST_BATCH_SIZE)
     candidate_map = {m["name"]: m for m in filtered_candidates}
     all_candidate_questions = [m["name"] for m in filtered_candidates]
 
@@ -359,6 +354,9 @@ def run_backtest_stream(
                 yield evt
             retry_events.clear()
             yield {"type": "result", "message": f"Batch {batch_num}/{total_batches}: skipped ({str(e)[:80]})"}
+
+        if batch_idx < total_batches - 1:
+            time.sleep(0.15)
 
     if not raw_followers:
         yield {"type": "error", "message": "No related markets found. Try a different market."}
