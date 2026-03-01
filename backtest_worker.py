@@ -41,6 +41,7 @@ TOLERANCES = {
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "1"))
 
 
 def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
@@ -195,6 +196,12 @@ def _parse_end_date(end_date: str) -> Optional[int]:
         return None
 
 
+def _build_backtest_cache_key(market_id: str, end_date: str, min_volume: int) -> str:
+    """Build a deterministic cache key for a historical backtest configuration."""
+    normalized_end = (end_date or "").strip()
+    return f"v{BACKTEST_CACHE_VERSION}:{market_id}:{normalized_end}:{int(min_volume)}"
+
+
 def run_backtest_stream(
     market_id: str,
     market_question: str,
@@ -228,6 +235,15 @@ def run_backtest_stream(
     }
 
     # ── Step 2: Find related markets using LLM ──────────────────
+    cache_key = _build_backtest_cache_key(market_id, end_date, min_volume)
+    cached_result = db.get_backtest_result(cache_key)
+    if cached_result and isinstance(cached_result, dict):
+        if all(k in cached_result for k in ("leader", "timeframes", "trades", "summary")):
+            yield {"type": "step", "message": "Loading cached backtest from database"}
+            yield {"type": "result", "message": "Cache hit: returning stored result without refetching"}
+            yield {"type": "done", "data": cached_result}
+            return
+
     yield {"type": "step", "message": "Loading candidate markets"}
 
     all_markets = db.get_all_markets()
@@ -509,18 +525,32 @@ def run_backtest_stream(
                 summary[f"losses_{tf_name}"] = 0
 
     # ── Done ────────────────────────────────────────────────────
-    yield {
-        "type": "done",
-        "data": {
-            "leader": {
-                "id": market_id,
-                "question": market_question,
-                "resolution_time": resolution_time,
-                "resolution_time_formatted": _format_timestamp(resolution_time),
-                "end_date": end_date,
-            },
-            "timeframes": list(TIMEFRAMES.keys()),
-            "trades": trades,
-            "summary": summary,
+    final_data = {
+        "leader": {
+            "id": market_id,
+            "question": market_question,
+            "resolution_time": resolution_time,
+            "resolution_time_formatted": _format_timestamp(resolution_time),
+            "end_date": end_date,
         },
+        "timeframes": list(TIMEFRAMES.keys()),
+        "trades": trades,
+        "summary": summary,
     }
+
+    try:
+        db.upsert_backtest_result(
+            cache_key=cache_key,
+            market_id=market_id,
+            market_question=market_question,
+            clob_token_id=clob_token_id,
+            end_date=end_date,
+            min_volume=min_volume,
+            cache_version=BACKTEST_CACHE_VERSION,
+            result=final_data,
+        )
+        yield {"type": "result", "message": "Saved backtest result to local database cache"}
+    except Exception as e:
+        print(f"[Backtest] Cache save error: {e}")
+
+    yield {"type": "done", "data": final_data}

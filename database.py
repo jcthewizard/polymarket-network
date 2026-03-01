@@ -4,6 +4,7 @@ SQLite database operations for Polymarket data caching.
 
 import sqlite3
 import os
+import json
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
@@ -71,11 +72,28 @@ def init_db():
             value TEXT
         )
     ''')
+
+    # Backtest result cache table (persists completed historical backtests)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS backtest_cache (
+            cache_key TEXT PRIMARY KEY,
+            market_id TEXT NOT NULL,
+            market_question TEXT,
+            clob_token_id TEXT,
+            end_date TEXT,
+            min_volume INTEGER DEFAULT 10000,
+            cache_version INTEGER DEFAULT 1,
+            result_json TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     
     # Create indexes for faster queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_history_market ON price_history(market_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_correlations_source ON correlations(source_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_correlations_target ON correlations(target_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_backtest_cache_market ON backtest_cache(market_id)')
     
     conn.commit()
     conn.close()
@@ -346,6 +364,74 @@ def get_metadata(key: str) -> Optional[str]:
     conn.close()
     
     return row['value'] if row else None
+
+
+def get_backtest_result(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Get a cached backtest result payload by cache key."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT result_json FROM backtest_cache WHERE cache_key = ?', (cache_key,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    try:
+        return json.loads(row['result_json'])
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def upsert_backtest_result(
+    cache_key: str,
+    market_id: str,
+    market_question: str,
+    clob_token_id: str,
+    end_date: str,
+    min_volume: int,
+    cache_version: int,
+    result: Dict[str, Any],
+):
+    """Insert or update a cached backtest result payload."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+
+    cursor.execute(
+        '''
+        INSERT INTO backtest_cache (
+            cache_key, market_id, market_question, clob_token_id, end_date,
+            min_volume, cache_version, result_json, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+            market_id = excluded.market_id,
+            market_question = excluded.market_question,
+            clob_token_id = excluded.clob_token_id,
+            end_date = excluded.end_date,
+            min_volume = excluded.min_volume,
+            cache_version = excluded.cache_version,
+            result_json = excluded.result_json,
+            updated_at = excluded.updated_at
+        ''',
+        (
+            cache_key,
+            market_id,
+            market_question,
+            clob_token_id,
+            end_date,
+            int(min_volume),
+            int(cache_version),
+            json.dumps(result),
+            now,
+            now,
+        ),
+    )
+
+    conn.commit()
+    conn.close()
 
 
 def clear_correlations():
