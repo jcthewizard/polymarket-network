@@ -1,7 +1,7 @@
 """
-Backtest Worker: "Resolution Shock" strategy.
+Backtest Worker: historical resolution backtest strategy.
 Algorithm:
-  1. Use the leader market's endDate (resolution time) as the signal
+  1. Use the leader market's resolved timestamp as the signal
   2. Find related markets using LLM (reusing discover_worker's two-pass approach)
   3. Fetch price history for each related market
   4. Calculate P&L at multiple timeframes from the resolution moment (5m, 1h, 1d, 1w)
@@ -12,6 +12,7 @@ Streams progress events so the frontend can show a live log.
 import os
 import json
 import time
+from collections import Counter
 from datetime import datetime
 from typing import List, Dict, Optional, Generator
 
@@ -41,7 +42,10 @@ TOLERANCES = {
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
-BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "1"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "2"))
+ENTRY_FALLBACK_MAX_LAG_SECONDS = int(
+    os.environ.get("BACKTEST_ENTRY_FALLBACK_MAX_LAG_SECONDS", str(6 * 60 * 60))
+)
 
 
 def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
@@ -168,50 +172,79 @@ def _find_nearest_price(history: List[Dict], target_time: int, tolerance_seconds
     return None
 
 
+def _find_entry_price(
+    history: List[Dict],
+    target_time: int,
+    tolerance_seconds: int,
+    fallback_max_lag_seconds: int,
+) -> Dict[str, object]:
+    """Find entry near target with optional bounded post-resolution fallback."""
+    direct = _find_nearest_price(history, target_time, tolerance_seconds)
+    if direct is not None:
+        return {"price": direct, "method": "nearest", "lag_seconds": 0}
+
+    if fallback_max_lag_seconds <= 0 or not history:
+        return {"price": None, "method": "none", "lag_seconds": None}
+
+    first_after = None
+    for point in history:
+        if point["t"] >= target_time:
+            first_after = point
+            break
+
+    if first_after is None:
+        return {"price": None, "method": "none", "lag_seconds": None}
+
+    lag_seconds = int(first_after["t"] - target_time)
+    if lag_seconds <= fallback_max_lag_seconds:
+        return {"price": first_after["p"], "method": "first_after", "lag_seconds": lag_seconds}
+
+    return {"price": None, "method": "none", "lag_seconds": lag_seconds}
+
+
 def _format_timestamp(ts: int) -> str:
     """Format a unix timestamp to human-readable string."""
     return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _parse_end_date(end_date: str) -> Optional[int]:
+def _parse_resolution_time(value: str) -> Optional[int]:
     """Parse an ISO date string to unix timestamp."""
-    if not end_date:
+    if not value:
         return None
     try:
         # Handle ISO format with timezone
-        dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         return int(dt.timestamp())
     except Exception:
         pass
     try:
-        # Handle simple date string
-        dt = datetime.strptime(end_date[:19], "%Y-%m-%dT%H:%M:%S")
+        dt = datetime.strptime(value[:19], "%Y-%m-%dT%H:%M:%S")
         return int(dt.timestamp())
     except Exception:
         pass
     try:
-        dt = datetime.strptime(end_date[:10], "%Y-%m-%d")
+        dt = datetime.strptime(value[:10], "%Y-%m-%d")
         return int(dt.timestamp())
     except Exception:
         return None
 
 
-def _build_backtest_cache_key(market_id: str, end_date: str, min_volume: int) -> str:
+def _build_backtest_cache_key(market_id: str, resolution_time_str: str, min_volume: int) -> str:
     """Build a deterministic cache key for a historical backtest configuration."""
-    normalized_end = (end_date or "").strip()
-    return f"v{BACKTEST_CACHE_VERSION}:{market_id}:{normalized_end}:{int(min_volume)}"
+    normalized_resolution = (resolution_time_str or "").strip()
+    return f"v{BACKTEST_CACHE_VERSION}:{market_id}:{normalized_resolution}:{int(min_volume)}"
 
 
 def run_backtest_stream(
     market_id: str,
     market_question: str,
     clob_token_id: str,
-    end_date: str,
+    resolution_time_str: str,
     openai_api_key: str,
     min_volume: int = 10000,
 ) -> Generator[Dict, None, None]:
     """
-    Run Resolution Shock backtest. Yields progress events as a stream.
+    Run historical backtest. Yields progress events as a stream.
 
     Event types:
       {"type": "step",   "message": "..."}
@@ -221,11 +254,17 @@ def run_backtest_stream(
     """
 
     # ── Step 1: Determine resolution time ────────────────────────
-    yield {"type": "step", "message": "Determining resolution time from endDate"}
+    yield {"type": "step", "message": "Determining resolution time from market close timestamp"}
 
-    resolution_time = _parse_end_date(end_date)
+    resolution_time = _parse_resolution_time(resolution_time_str)
     if resolution_time is None:
-        yield {"type": "error", "message": f"Could not parse endDate: '{end_date}'. Cannot determine resolution time."}
+        yield {
+            "type": "error",
+            "message": (
+                f"Could not parse resolution timestamp: '{resolution_time_str}'. "
+                "Cannot determine resolution time."
+            ),
+        }
         return
 
     yield {
@@ -235,7 +274,7 @@ def run_backtest_stream(
     }
 
     # ── Step 2: Find related markets using LLM ──────────────────
-    cache_key = _build_backtest_cache_key(market_id, end_date, min_volume)
+    cache_key = _build_backtest_cache_key(market_id, resolution_time_str, min_volume)
     cached_result = db.get_backtest_result(cache_key)
     if cached_result and isinstance(cached_result, dict):
         if all(k in cached_result for k in ("leader", "timeframes", "trades", "summary")):
@@ -246,15 +285,26 @@ def run_backtest_stream(
 
     yield {"type": "step", "message": "Loading candidate markets"}
 
-    all_markets = db.get_all_markets()
+    db_markets = db.get_all_markets()
+    db_categories = {m.get("id", ""): m.get("category", "Other") for m in db_markets if m.get("id")}
 
-    # If local DB is empty, fetch active markets from Gamma API directly
-    if not all_markets:
-        yield {"type": "step", "message": "Local database empty — fetching active markets from Gamma API"}
-        all_markets = _fetch_candidate_markets_from_gamma(min_volume)
+    # Prefer Gamma because historical backtests need temporal fields (start/end/closed).
+    gamma_markets = _fetch_candidate_markets_from_gamma(min_volume)
+    if gamma_markets:
+        for market in gamma_markets:
+            cached_category = db_categories.get(market.get("id", ""), "Other")
+            if cached_category and cached_category != "Other":
+                market["category"] = cached_category
+        all_markets = gamma_markets
         yield {
             "type": "result",
-            "message": f"Fetched {len(all_markets)} active markets from Gamma API",
+            "message": f"Loaded {len(all_markets)} candidates from Gamma (active + closed)",
+        }
+    else:
+        all_markets = db_markets
+        yield {
+            "type": "result",
+            "message": f"Gamma fetch unavailable, falling back to {len(all_markets)} local DB markets",
         }
 
     # Filter: different market, minimum volume
@@ -262,7 +312,8 @@ def run_backtest_stream(
     # For closed markets: skip probability filter (resolved = 0% or 100%)
     # For all: check time overlap with resolution time
     candidates = []
-    skipped_time = 0
+    skipped_started_after = 0
+    skipped_ended_before = 0
     for m in all_markets:
         if m.get("id", "") == market_id:
             continue
@@ -273,19 +324,27 @@ def run_backtest_stream(
             prob = m.get("probability", 0.5)
             if not (0.05 <= prob <= 0.95):
                 continue
-        # Time overlap: candidate must have existed at resolution time
-        start_str = m.get("startDate", "")
-        if start_str and resolution_time:
-            try:
-                start_ts = int(datetime.fromisoformat(start_str.replace("Z", "+00:00")).timestamp())
-                if start_ts > resolution_time:
-                    skipped_time += 1
-                    continue
-            except (ValueError, TypeError):
-                pass
+        # Time overlap: candidate must have existed at resolution time.
+        start_str = m.get("startDate", "") or m.get("start_date", "")
+        start_ts = _parse_resolution_time(start_str) if start_str else None
+        if start_ts is not None and start_ts > resolution_time:
+            skipped_started_after += 1
+            continue
+
+        # Exclude markets that already ended before the leader resolved.
+        end_str = m.get("endDate", "") or m.get("end_date", "")
+        end_ts = _parse_resolution_time(end_str) if end_str else None
+        if end_ts is not None and end_ts < resolution_time:
+            skipped_ended_before += 1
+            continue
         candidates.append(m)
 
-    time_msg = f", {skipped_time} skipped (started after resolution)" if skipped_time else ""
+    time_parts = []
+    if skipped_started_after:
+        time_parts.append(f"{skipped_started_after} skipped (started after resolution)")
+    if skipped_ended_before:
+        time_parts.append(f"{skipped_ended_before} skipped (ended before resolution)")
+    time_msg = f", {'; '.join(time_parts)}" if time_parts else ""
     yield {
         "type": "result",
         "message": f"Loaded {len(candidates)} candidate markets (vol >= ${min_volume:,}{time_msg})",
@@ -293,7 +352,7 @@ def run_backtest_stream(
     }
 
     if not candidates:
-        yield {"type": "error", "message": "No candidate markets found in database"}
+        yield {"type": "error", "message": "No candidate markets overlap the selected resolution time"}
         return
 
     # Pass 1: Category reasoning
@@ -442,8 +501,14 @@ def run_backtest_stream(
 
         f_history.sort(key=lambda x: x["t"])
 
-        # Find entry price (at resolution time)
-        entry_price = _find_nearest_price(f_history, resolution_time, TOLERANCES["1h"])
+        # Find entry at resolution time; fallback to first post-resolution print within a bounded lag.
+        entry_result = _find_entry_price(
+            f_history,
+            resolution_time,
+            TOLERANCES["1h"],
+            ENTRY_FALLBACK_MAX_LAG_SECONDS,
+        )
+        entry_price = entry_result["price"]
         if entry_price is None:
             data_start = _format_timestamp(f_history[0]["t"]) if f_history else "?"
             data_end = _format_timestamp(f_history[-1]["t"]) if f_history else "?"
@@ -493,6 +558,8 @@ def run_backtest_stream(
                 "status": "ok",
                 "direction": direction,
                 "entry_price": round(entry_price, 4),
+                "entry_method": entry_result["method"],
+                "entry_lag_seconds": entry_result["lag_seconds"],
                 "pnl": pnl,
             }
         )
@@ -510,7 +577,12 @@ def run_backtest_stream(
     }
 
     # ── Step 4: Calculate summary ───────────────────────────────
-    summary = {"total_trades": len(valid_trades), "skipped_trades": len(skipped_trades)}
+    status_breakdown = dict(Counter(t.get("status", "unknown") for t in trades))
+    summary = {
+        "total_trades": len(valid_trades),
+        "skipped_trades": len(skipped_trades),
+        "status_breakdown": status_breakdown,
+    }
 
     if valid_trades:
         for tf_name in TIMEFRAMES:
@@ -531,7 +603,7 @@ def run_backtest_stream(
             "question": market_question,
             "resolution_time": resolution_time,
             "resolution_time_formatted": _format_timestamp(resolution_time),
-            "end_date": end_date,
+            "resolution_time_input": resolution_time_str,
         },
         "timeframes": list(TIMEFRAMES.keys()),
         "trades": trades,
@@ -544,7 +616,7 @@ def run_backtest_stream(
             market_id=market_id,
             market_question=market_question,
             clob_token_id=clob_token_id,
-            end_date=end_date,
+            end_date=resolution_time_str,
             min_volume=min_volume,
             cache_version=BACKTEST_CACHE_VERSION,
             result=final_data,

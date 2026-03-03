@@ -10,6 +10,7 @@ import urllib.error
 import json
 import os
 import sys
+import errno
 import threading
 from datetime import datetime
 
@@ -24,6 +25,23 @@ PORT = 8000
 _resolved_markets_cache = None
 _resolved_markets_cache_time = 0
 RESOLVED_CACHE_TTL = 600  # 10 minutes
+
+
+def _pick_resolution_time(market: dict):
+    """Return (timestamp_str, source) for best-available resolution time."""
+    closed_time = market.get('closedTime', '') or ''
+    if closed_time:
+        return closed_time, 'closedTime'
+
+    uma_end_date = market.get('umaEndDate', '') or ''
+    if uma_end_date:
+        return uma_end_date, 'umaEndDate'
+
+    end_date = market.get('endDate', '') or ''
+    if end_date:
+        return end_date, 'endDate'
+
+    return '', ''
 
 
 def _fetch_resolved_markets():
@@ -69,13 +87,14 @@ def _fetch_resolved_markets():
             volume = float(m.get('volume', 0) or 0)
             end_date = m.get('endDate', '') or ''
             start_date = m.get('startDate', '') or ''
+            resolution_time, resolution_source = _pick_resolution_time(m)
 
             # Must have valid dates and CLOB IDs
-            if not end_date or not start_date or not clob_ids:
+            if not resolution_time or not start_date or not clob_ids:
                 continue
 
             # Skip very old markets (pre-CLOB, no price history)
-            if end_date < '2023-01-01':
+            if resolution_time < '2023-01-01':
                 continue
 
             # Minimum volume filter
@@ -103,6 +122,10 @@ def _fetch_resolved_markets():
                 'clobTokenIds': clob_ids,
                 'startDate': start_date,
                 'endDate': end_date,
+                'closedTime': m.get('closedTime', '') or '',
+                'umaEndDate': m.get('umaEndDate', '') or '',
+                'resolutionTime': resolution_time,
+                'resolutionSource': resolution_source,
                 'resolved_outcome': resolved_outcome,
             })
         except (ValueError, TypeError, json.JSONDecodeError):
@@ -636,36 +659,40 @@ Respond with ONLY the category name, nothing else."""
     def handle_backtest_search(self):
         """Search for resolved markets from Gamma API (cached).
         Supports:
-          ?q=text      — keyword search (legacy)
-          ?date=YYYY-MM-DD — date-based: markets active on that date
+          ?date=YYYY-MM-DD — markets resolved on that date
+          ?name=text       — market-question name search
+          ?q=text          — legacy alias for name search
+        Filters can be combined (e.g., date + name).
         """
         try:
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
-            query = params.get('q', [''])[0].lower().strip()
+            name_query = params.get('name', [''])[0].lower().strip()
+            legacy_query = params.get('q', [''])[0].lower().strip()
+            query = name_query or legacy_query
             date_str = params.get('date', [''])[0].strip()
 
             resolved_markets = _get_resolved_markets_cache()
 
-            if date_str:
-                # Date-based search: return markets where startDate <= date <= endDate
-                results = []
-                for m in resolved_markets:
-                    s = (m.get('startDate') or '')[:10]
-                    e = (m.get('endDate') or '')[:10]
-                    if s and e and s <= date_str <= e:
-                        results.append(m)
-                # Sort by volume descending
-                results.sort(key=lambda x: x.get('volume', 0), reverse=True)
-                self.send_json_response(results[:50])
-            elif len(query) >= 2:
-                results = [
-                    m for m in resolved_markets
-                    if query in m['question'].lower()
-                ][:20]
-                self.send_json_response(results)
-            else:
+            if not date_str and len(query) < 2:
                 self.send_json_response([])
+                return
+
+            results = resolved_markets
+            if date_str:
+                results = [
+                    m for m in results
+                    if (m.get('resolutionTime') or '')[:10] == date_str
+                ]
+
+            if len(query) >= 2:
+                results = [
+                    m for m in results
+                    if query in (m.get('question') or '').lower()
+                ]
+
+            results.sort(key=lambda x: x.get('volume', 0), reverse=True)
+            self.send_json_response(results[:50])
 
         except Exception as e:
             print(f"Backtest search error: {e}")
@@ -683,7 +710,7 @@ Respond with ONLY the category name, nothing else."""
             market_id = data.get('market_id', '')
             market_question = data.get('market_question', '')
             clob_token_id = data.get('clob_token_id', '')
-            end_date = data.get('end_date', '')
+            resolution_time = data.get('resolution_time', '') or data.get('end_date', '')
 
             if not market_id or not clob_token_id:
                 self.send_error_response(400, 'market_id and clob_token_id are required')
@@ -710,7 +737,7 @@ Respond with ONLY the category name, nothing else."""
                     importlib.reload(backtest_worker)
                     for event in backtest_worker.run_backtest_stream(
                         market_id, market_question, clob_token_id,
-                        end_date, OPENAI_API_KEY,
+                        resolution_time, OPENAI_API_KEY,
                     ):
                         eq.put(event)
                 except Exception as exc:
@@ -845,9 +872,17 @@ if __name__ == '__main__':
     # Initialize database
     db.init_db()
 
-    # Start HTTP server (data refreshes on-demand when users visit)
-    socketserver.ThreadingTCPServer.allow_reuse_address = True
-    server = socketserver.ThreadingTCPServer(("", PORT), ProxyHTTPRequestHandler)
+    # Start HTTP server (data refreshes on-demand when users visit).
+    # On Windows, allowing address reuse can let multiple processes bind the same
+    # port and cause intermittent connection resets in browsers.
+    socketserver.ThreadingTCPServer.allow_reuse_address = (os.name != "nt")
+    try:
+        server = socketserver.ThreadingTCPServer(("", PORT), ProxyHTTPRequestHandler)
+    except OSError as e:
+        if e.errno in (errno.EADDRINUSE, 10048):
+            print(f"Port {PORT} is already in use. Stop the other server process and retry.")
+            sys.exit(1)
+        raise
     with server as httpd:
         print(f"Serving at http://localhost:{PORT}")
         print(f"REST API available at /api/data, /api/data/status")

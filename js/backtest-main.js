@@ -97,14 +97,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── Historical Date Search ─────────────────────────────
     const dateInput = document.getElementById('backtest-date');
+    const historicalNameInput = document.getElementById('backtest-name-search');
     const marketListContainer = document.getElementById('market-list-container');
     const marketList = document.getElementById('market-list');
 
     dateInput.value = '2024-11-05';
 
-    dateInput.addEventListener('change', async (e) => {
-        const date = e.target.value;
-        if (!date) {
+    function renderHistoricalMarkets(markets, emptyMessage) {
+        if (markets.length === 0) {
+            marketList.innerHTML = `<div class="px-4 py-3 text-sm text-slate-500">${emptyMessage}</div>`;
+            return;
+        }
+
+        marketList.innerHTML = markets.map(m => {
+            const resolutionTime = m.resolutionTime || m.closedTime || m.umaEndDate || m.endDate || '';
+            const resolutionLabel = resolutionTime ? resolutionTime.slice(0, 10) : '';
+            return `
+                    <div class="market-item px-4 py-3 hover:bg-white cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
+                         data-id="${m.id}"
+                         data-question="${escapeAttr(m.question)}"
+                         data-volume="${m.volume}"
+                         data-clob='${JSON.stringify(m.clobTokenIds)}'
+                         data-resolution="${resolutionTime}"
+                         data-resolution-source="${m.resolutionSource || ''}"
+                         data-end="${m.endDate || ''}"
+                         data-start="${m.startDate || ''}">
+                        <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.question)}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${resolutionLabel ? ` \u2022 Resolved ${resolutionLabel}` : ''}</p>
+                    </div>`;
+        }).join('');
+    }
+
+    async function loadHistoricalMarkets() {
+        const date = dateInput.value.trim();
+        const nameQuery = historicalNameInput.value.trim();
+
+        if (!date && nameQuery.length < 2) {
             marketListContainer.classList.add('hidden');
             return;
         }
@@ -113,32 +141,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         marketListContainer.classList.remove('hidden');
         clearSelection();
 
+        const params = new URLSearchParams();
+        if (date) params.set('date', date);
+        if (nameQuery.length >= 2) params.set('name', nameQuery);
+
         try {
-            const response = await fetch(`/api/backtest/search?date=${encodeURIComponent(date)}`);
+            const response = await fetch(`/api/backtest/search?${params.toString()}`);
             const markets = await response.json();
 
-            if (markets.length === 0) {
-                marketList.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">No resolved markets found for this date</div>';
+            if (date && nameQuery.length >= 2) {
+                renderHistoricalMarkets(markets, 'No resolved markets found matching this name on the selected date');
+            } else if (date) {
+                renderHistoricalMarkets(markets, 'No resolved markets found for this date');
             } else {
-                marketList.innerHTML = markets.map(m => {
-                    const endLabel = m.endDate ? m.endDate.slice(0, 10) : '';
-                    return `
-                    <div class="market-item px-4 py-3 hover:bg-white cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
-                         data-id="${m.id}"
-                         data-question="${escapeAttr(m.question)}"
-                         data-volume="${m.volume}"
-                         data-clob='${JSON.stringify(m.clobTokenIds)}'
-                         data-end="${m.endDate || ''}"
-                         data-start="${m.startDate || ''}">
-                        <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.question)}</p>
-                        <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${endLabel ? ` \u2022 Resolved ${endLabel}` : ''}</p>
-                    </div>`;
-                }).join('');
+                renderHistoricalMarkets(markets, 'No resolved markets found for this name search');
             }
         } catch (err) {
-            console.error('Date search error:', err);
+            console.error('Historical search error:', err);
             marketList.innerHTML = '<div class="px-4 py-3 text-sm text-red-500">Error loading markets</div>';
         }
+    }
+
+    dateInput.addEventListener('change', loadHistoricalMarkets);
+
+    let historicalSearchDebounce = null;
+    historicalNameInput.addEventListener('input', () => {
+        if (historicalSearchDebounce) clearTimeout(historicalSearchDebounce);
+        historicalSearchDebounce = setTimeout(loadHistoricalMarkets, 300);
     });
 
     marketList.addEventListener('click', (e) => {
@@ -150,6 +179,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             name: item.dataset.question,
             volume: parseFloat(item.dataset.volume),
             clobTokenIds: JSON.parse(item.dataset.clob),
+            resolutionTime: item.dataset.resolution || item.dataset.end,
+            resolutionSource: item.dataset.resolutionSource || '',
             endDate: item.dataset.end,
             startDate: item.dataset.start,
             category: 'Other',
@@ -174,7 +205,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (searchMode === 'live') {
             selectedMarketMeta.textContent = `${market.category || 'Other'} \u2022 $${(market.volume / 1000000).toFixed(1)}M \u2022 ${(market.probability * 100).toFixed(0)}%`;
         } else {
-            selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved ${(market.endDate || '').slice(0, 10)}`;
+            const resolvedAt = (market.resolutionTime || market.endDate || '').slice(0, 10);
+            selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved ${resolvedAt}`;
         }
         selectedMarketEl.classList.remove('hidden');
         runBtn.disabled = false;
@@ -593,10 +625,11 @@ async function runDiscoverFlow() {
 async function runBacktestFlow() {
     showProgress();
     const marketName = selectedMarket.name || selectedMarket.question;
+    const resolutionTime = selectedMarket.resolutionTime || selectedMarket.endDate || '';
 
     const leaderStep = logStep(`Leader: ${marketName}`);
     resolveStep(leaderStep);
-    const configStep = logStep(`Resolution date: ${(selectedMarket.endDate || '').slice(0, 10)}`);
+    const configStep = logStep(`Resolution date: ${resolutionTime.slice(0, 10)}`);
     resolveStep(configStep);
 
     const clobTokenId = selectedMarket.clobTokenIds?.[0] || '';
@@ -609,7 +642,9 @@ async function runBacktestFlow() {
             market_id: selectedMarket.id,
             market_question: marketName,
             clob_token_id: clobTokenId,
-            end_date: selectedMarket.endDate,
+            resolution_time: resolutionTime,
+            // Backward compatibility for older server code paths.
+            end_date: selectedMarket.endDate || resolutionTime,
         }, (event) => {
             switch (event.type) {
                 case 'step': currentStep = logStep(event.message); break;
@@ -651,7 +686,15 @@ async function runBacktestFlow() {
         };
 
         if (validTrades.length === 0) {
-            logError('No executable trades found. Related markets had no price data at the resolution time.');
+            const breakdown = finalData.summary?.status_breakdown || {};
+            const reasonParts = Object.entries(breakdown)
+                .filter(([status, count]) => status !== 'ok' && count > 0)
+                .sort((a, b) => b[1] - a[1])
+                .map(([status, count]) => `${status}: ${count}`);
+            const reasonText = reasonParts.length
+                ? ` Skip reasons: ${reasonParts.join(', ')}.`
+                : ' Related markets had no price data at the resolution time.';
+            logError(`No executable trades found.${reasonText}`);
             // Still show graph if we have followers
             if (discoverResults.followers.length > 0) {
                 showGraph();
