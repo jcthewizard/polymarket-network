@@ -16,6 +16,7 @@ def get_connection():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -34,6 +35,9 @@ def init_db():
             volume REAL DEFAULT 0,
             probability REAL DEFAULT 0.5,
             clob_token_id TEXT,
+            condition_id TEXT DEFAULT '',
+            clob_token_id_yes TEXT DEFAULT '',
+            clob_token_id_no TEXT DEFAULT '',
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -95,6 +99,89 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_correlations_target ON correlations(target_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_backtest_cache_market ON backtest_cache(market_id)')
     
+
+    # Relationships table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS relationships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            leader_market_id TEXT NOT NULL,
+            leader_condition_id TEXT NOT NULL,
+            leader_clob_token_id TEXT NOT NULL,
+            leader_question TEXT,
+            follower_market_id TEXT NOT NULL,
+            follower_condition_id TEXT NOT NULL,
+            follower_clob_token_id_yes TEXT,
+            follower_clob_token_id_no TEXT,
+            follower_question TEXT,
+            follower_slug TEXT,
+            confidence REAL NOT NULL,
+            is_same_direction BOOLEAN DEFAULT 1,
+            relationship_type TEXT DEFAULT 'direct',
+            rationale TEXT,
+            discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            active BOOLEAN DEFAULT 1,
+            UNIQUE(leader_market_id, follower_market_id)
+        )
+    ''')
+
+    # Trade signals table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trade_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            leader_market_id TEXT NOT NULL,
+            follower_market_id TEXT NOT NULL,
+            trigger_type TEXT NOT NULL,
+            trigger_value TEXT,
+            action TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            confidence REAL,
+            status TEXT DEFAULT 'PENDING',
+            rejection_reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            executed_at DATETIME
+        )
+    ''')
+
+    # Positions table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS positions (
+            id TEXT PRIMARY KEY,
+            signal_id INTEGER,
+            market_slug TEXT NOT NULL,
+            token_id TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_price REAL,
+            size_shares REAL,
+            amount_usdc REAL,
+            status TEXT DEFAULT 'PENDING',
+            close_reason TEXT,
+            exit_price REAL,
+            realized_pnl REAL,
+            order_id TEXT,
+            close_order_id TEXT,
+            opened_at DATETIME,
+            filled_at DATETIME,
+            closed_at DATETIME,
+            dry_run BOOLEAN DEFAULT 1,
+            FOREIGN KEY (signal_id) REFERENCES trade_signals(id)
+        )
+    ''')
+
+    # Fired resolutions table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS fired_resolutions (
+            leader_market_id TEXT PRIMARY KEY,
+            resolution_value TEXT NOT NULL,
+            fired_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_relationships_leader ON relationships(leader_market_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_relationships_active ON relationships(active)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_trade_signals_status ON trade_signals(status)')
+
     conn.commit()
     conn.close()
     print("Database initialized.")
@@ -115,8 +202,8 @@ def upsert_market(market: Dict[str, Any]):
         category = existing[0]
     
     cursor.execute('''
-        INSERT OR REPLACE INTO markets (id, name, slug, category, volume, probability, clob_token_id, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO markets (id, name, slug, category, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         market['id'],
         market['name'],
@@ -125,6 +212,9 @@ def upsert_market(market: Dict[str, Any]):
         market.get('volume', 0),
         market.get('probability', 0.5),
         market.get('clob_token_id', ''),
+        market.get('condition_id', ''),
+        market.get('clob_token_id_yes', ''),
+        market.get('clob_token_id_no', ''),
         datetime.now().isoformat()
     ))
     
@@ -198,8 +288,8 @@ def atomic_replace_all_data(markets: List[Dict], histories: Dict[str, List], cor
         # 2. Insert all markets
         for market in markets:
             cursor.execute('''
-                INSERT OR REPLACE INTO markets (id, name, slug, category, volume, probability, clob_token_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO markets (id, name, slug, category, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 market['id'],
                 market['name'],
@@ -207,7 +297,10 @@ def atomic_replace_all_data(markets: List[Dict], histories: Dict[str, List], cor
                 market['category'],
                 market['volume'],
                 market['probability'],
-                market['clob_token_id']
+                market['clob_token_id'],
+                market.get('condition_id', ''),
+                market.get('clob_token_id_yes', ''),
+                market.get('clob_token_id_no', '')
             ))
         
         # 3. Insert all price history
@@ -479,6 +572,180 @@ def update_market_category(market_id: str, category: str):
     cursor.execute('UPDATE markets SET category = ? WHERE id = ?', (category, market_id))
     conn.commit()
     conn.close()
+
+
+# ── Relationships CRUD ──────────────────────────────────────────
+
+def insert_relationship(leader_market_id, leader_condition_id, leader_clob_token_id,
+                        leader_question, follower_market_id, follower_condition_id,
+                        follower_clob_token_id_yes, follower_clob_token_id_no,
+                        follower_question, follower_slug, confidence,
+                        is_same_direction=True, relationship_type='direct', rationale=''):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR REPLACE INTO relationships
+        (leader_market_id, leader_condition_id, leader_clob_token_id, leader_question,
+         follower_market_id, follower_condition_id, follower_clob_token_id_yes,
+         follower_clob_token_id_no, follower_question, follower_slug,
+         confidence, is_same_direction, relationship_type, rationale)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (leader_market_id, leader_condition_id, leader_clob_token_id, leader_question,
+          follower_market_id, follower_condition_id, follower_clob_token_id_yes,
+          follower_clob_token_id_no, follower_question, follower_slug,
+          confidence, is_same_direction, relationship_type, rationale))
+    conn.commit()
+    conn.close()
+
+
+def get_active_relationships():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM relationships WHERE active = 1')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def deactivate_relationships(leader_market_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE relationships SET active = 0 WHERE leader_market_id = ?', (leader_market_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── Trade Signals CRUD ──────────────────────────────────────────
+
+def insert_signal(leader_market_id, follower_market_id, trigger_type, trigger_value,
+                  action, outcome, confidence):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO trade_signals
+        (leader_market_id, follower_market_id, trigger_type, trigger_value,
+         action, outcome, confidence)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (leader_market_id, follower_market_id, trigger_type, trigger_value,
+          action, outcome, confidence))
+    signal_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return signal_id
+
+
+def update_signal_status(signal_id, status, rejection_reason=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    if rejection_reason:
+        cursor.execute('UPDATE trade_signals SET status = ?, rejection_reason = ? WHERE id = ?',
+                       (status, rejection_reason, signal_id))
+    else:
+        cursor.execute('UPDATE trade_signals SET status = ?, executed_at = ? WHERE id = ?',
+                       (status, datetime.now().isoformat(), signal_id))
+    conn.commit()
+    conn.close()
+
+
+def get_recent_signals(limit=50):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM trade_signals ORDER BY created_at DESC LIMIT ?', (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+# ── Positions CRUD ──────────────────────────────────────────────
+
+def insert_position(position):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO positions
+        (id, signal_id, market_slug, token_id, outcome, side, entry_price,
+         size_shares, amount_usdc, status, order_id, opened_at, dry_run)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (position['id'], position.get('signal_id'), position['market_slug'],
+          position['token_id'], position['outcome'], position['side'],
+          position['entry_price'], position['size_shares'], position['amount_usdc'],
+          position['status'], position.get('order_id'), position['opened_at'],
+          position.get('dry_run', True)))
+    conn.commit()
+    conn.close()
+
+
+def update_position(position_id, updates):
+    conn = get_connection()
+    cursor = conn.cursor()
+    set_clauses = []
+    values = []
+    for key, value in updates.items():
+        set_clauses.append(f'{key} = ?')
+        values.append(value)
+    values.append(position_id)
+    cursor.execute(f'UPDATE positions SET {", ".join(set_clauses)} WHERE id = ?', values)
+    conn.commit()
+    conn.close()
+
+
+def get_position(position_id):
+    """Get a single position by ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM positions WHERE id = ?', (position_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_open_positions():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM positions WHERE status IN ('PENDING', 'OPEN', 'CLOSING')")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_positions_by_status(status):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM positions WHERE status = ?', (status,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_recent_positions(limit=100):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM positions ORDER BY opened_at DESC LIMIT ?', (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+# ── Fired Resolutions ──────────────────────────────────────────
+
+def mark_resolution_fired(leader_market_id, resolution_value):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR REPLACE INTO fired_resolutions (leader_market_id, resolution_value)
+        VALUES (?, ?)
+    ''', (leader_market_id, resolution_value))
+    conn.commit()
+    conn.close()
+
+
+def is_resolution_fired(leader_market_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT 1 FROM fired_resolutions WHERE leader_market_id = ?', (leader_market_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
 
 
 # Initialize database on import

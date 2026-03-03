@@ -147,6 +147,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // Full graph panel handlers
+    document.getElementById('toggle-full-graph').addEventListener('click', toggleFullGraphPanel);
+    document.getElementById('full-graph-btn').addEventListener('click', runFullGraph);
+
     // Restore previous results on page load
     restoreFromSession();
 });
@@ -705,4 +709,101 @@ function closeModal() {
     content.classList.add('scale-95', 'opacity-0');
     content.classList.remove('scale-100', 'opacity-100');
     setTimeout(() => modal.classList.add('hidden'), 200);
+}
+
+
+// ─── Full Graph Generation ─────────────────────────────────────
+
+function toggleFullGraphPanel() {
+    const config = document.getElementById('full-graph-config');
+    const chevron = document.getElementById('full-graph-chevron');
+    config.classList.toggle('hidden');
+    chevron.classList.toggle('rotate-180');
+}
+
+async function runFullGraph() {
+    const topN = parseInt(document.getElementById('fg-top-n').value) || 20;
+    const minVolume = parseInt(document.getElementById('fg-min-volume').value) || 50000;
+    const skipExisting = document.getElementById('fg-skip-existing').checked;
+
+    // Switch to progress view
+    showProgress();
+    const titleStep = logStep(`Generating full relationship graph (top ${topN}, vol >= $${minVolume.toLocaleString()})`);
+    resolveStep(titleStep);
+
+    let currentStep = null;
+
+    try {
+        const response = await fetch('/api/discover/full', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                top_n: topN,
+                min_volume: minVolume,
+                skip_existing: skipExisting,
+            }),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalData = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                let event;
+                try { event = JSON.parse(line); } catch { continue; }
+
+                switch (event.type) {
+                    case 'step':
+                        currentStep = logStep(event.message);
+                        break;
+                    case 'result':
+                        resolveStep(currentStep, event.message);
+                        currentStep = null;
+                        break;
+                    case 'error':
+                        logError(event.message, currentStep);
+                        currentStep = null;
+                        break;
+                    case 'done':
+                        finalData = event.data;
+                        break;
+                    case 'keepalive':
+                        break;
+                }
+            }
+        }
+
+        // Show completion summary
+        if (finalData) {
+            const summary = logStep(
+                `Done — ${finalData.leaders_processed} leaders processed, ${finalData.total_followers} total relationships saved`
+            );
+            resolveStep(summary);
+
+            // Add link to trading page
+            const body = document.getElementById('progress-body');
+            const linkDiv = document.createElement('div');
+            linkDiv.className = 'mt-4 pt-4 border-t border-slate-200 text-center';
+            linkDiv.innerHTML = `<a href="trading.html" class="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors">
+                Go to Trading Dashboard
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+                </svg>
+            </a>`;
+            body.appendChild(linkDiv);
+        }
+
+    } catch (err) {
+        logError(`Connection error: ${err.message}`, currentStep);
+    }
 }
