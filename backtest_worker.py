@@ -18,10 +18,8 @@ from typing import List, Dict, Optional, Generator, Tuple
 
 import database as db
 from discover_worker import (
-    _prefilter_categories,
     _discover_relationships,
     _fuzzy_match,
-    _get_active_categories,
 )
 from llm_utils import CLOB_RATE_LIMITER, GAMMA_RATE_LIMITER, fetch_json_with_retries
 
@@ -42,7 +40,7 @@ TOLERANCES = {
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
-BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "5"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "6"))
 ENTRY_FALLBACK_MAX_LAG_SECONDS = int(
     os.environ.get("BACKTEST_ENTRY_FALLBACK_MAX_LAG_SECONDS", str(6 * 60 * 60))
 )
@@ -447,9 +445,9 @@ def run_backtest_stream(
         yield {"type": "error", "message": "No candidate markets overlap the selected resolution time"}
         return
 
-    # Pass 1: Category reasoning
-    available_categories = _get_active_categories(candidates)
-    yield {"type": "step", "message": "Pass 1: Identifying relevant categories"}
+    # Skip category filter for backtests (historical markets lack category data)
+    yield {"type": "result", "message": f"Skipping category filter (historical markets lack categories)"}
+    filtered_candidates = candidates
 
     retry_events = []
 
@@ -457,38 +455,6 @@ def run_backtest_stream(
         retry_events.append(
             {"type": "step", "message": f"Rate limit hit, retrying ({attempt}/{max_retries}) in {wait}s..."}
         )
-
-    try:
-        prefilter_result = _prefilter_categories(market_question, available_categories, openai_api_key, on_retry=on_retry)
-        for evt in retry_events:
-            yield evt
-        retry_events.clear()
-        relevant_categories = prefilter_result["categories"]
-    except Exception as e:
-        for evt in retry_events:
-            yield evt
-        yield {"type": "error", "message": f"Pass 1 failed: {str(e)}"}
-        return
-
-    yield {
-        "type": "result",
-        "message": f"Relevant categories: {', '.join(relevant_categories)}",
-        "data": {"categories": relevant_categories},
-    }
-
-    # Category filter
-    yield {"type": "step", "message": "Filtering candidates by relevant categories"}
-    relevant_set = set(relevant_categories)
-    filtered_candidates = [m for m in candidates if m.get("category", "Other") in relevant_set]
-
-    if not filtered_candidates:
-        yield {"type": "result", "message": "No candidates matched — falling back to all candidates"}
-        filtered_candidates = candidates
-    else:
-        yield {
-            "type": "result",
-            "message": f"{len(candidates)} -> {len(filtered_candidates)} candidates after category filter",
-        }
 
     # Pass 2: Relationship discovery (batched)
     BATCH_SIZE = max(10, BACKTEST_BATCH_SIZE)
