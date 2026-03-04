@@ -101,8 +101,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const marketListContainer = document.getElementById('market-list-container');
     const marketList = document.getElementById('market-list');
 
-    dateInput.value = '2024-11-05';
-
     function renderHistoricalMarkets(markets, emptyMessage) {
         if (markets.length === 0) {
             marketList.innerHTML = `<div class="px-4 py-3 text-sm text-slate-500">${emptyMessage}</div>`;

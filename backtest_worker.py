@@ -14,7 +14,7 @@ import json
 import time
 from collections import Counter
 from datetime import datetime
-from typing import List, Dict, Optional, Generator
+from typing import List, Dict, Optional, Generator, Tuple
 
 import database as db
 from discover_worker import (
@@ -42,10 +42,14 @@ TOLERANCES = {
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
-BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "2"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "5"))
 ENTRY_FALLBACK_MAX_LAG_SECONDS = int(
     os.environ.get("BACKTEST_ENTRY_FALLBACK_MAX_LAG_SECONDS", str(6 * 60 * 60))
 )
+DATA_API_PAGE_SIZE = int(os.environ.get("BACKTEST_DATA_API_PAGE_SIZE", "200"))
+DATA_API_MAX_PAGES = int(os.environ.get("BACKTEST_DATA_API_MAX_PAGES", "25"))
+BACKTEST_ACTIVE_FETCH_MAX = int(os.environ.get("BACKTEST_ACTIVE_FETCH_MAX", "1000"))
+BACKTEST_CLOSED_FETCH_MAX = int(os.environ.get("BACKTEST_CLOSED_FETCH_MAX", "10000"))
 
 
 def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
@@ -57,8 +61,8 @@ def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
 
     # Fetch from two sources: active markets AND high-volume closed markets
     queries = [
-        ("active=true&closed=false", 1000),   # Currently active
-        ("closed=true", 2000),                 # Recently closed (sorted by volume)
+        ("active=true&closed=false", BACKTEST_ACTIVE_FETCH_MAX),  # Currently active
+        ("closed=true", BACKTEST_CLOSED_FETCH_MAX),               # Closed markets (sorted by volume)
     ]
 
     for query_filter, max_count in queries:
@@ -125,8 +129,12 @@ def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
                 "volume": vol,
                 "probability": prob,
                 "clob_token_id": clob_ids[0] if clob_ids else "",
+                "condition_id": m.get("conditionId", ""),
                 "startDate": m.get("startDate", ""),
                 "endDate": m.get("endDate", ""),
+                "closedTime": m.get("closedTime", ""),
+                "umaEndDate": m.get("umaEndDate", ""),
+                "resolutionTime": (m.get("closedTime", "") or m.get("umaEndDate", "") or m.get("endDate", "")),
                 "closed": m.get("closed", False),
             })
         except (ValueError, TypeError, json.JSONDecodeError):
@@ -156,6 +164,84 @@ def _fetch_price_history(clob_token_id: str, fidelity: int = 60) -> Optional[Lis
     except Exception as e:
         print(f"[Backtest] Price fetch error: {e}")
         return None
+
+
+def _fetch_trade_history_from_data_api(
+    condition_id: str,
+    asset_token_id: str,
+    fidelity: int = 60,
+) -> Optional[List[Dict]]:
+    """Fallback: reconstruct a price series from Data API trades for closed contracts."""
+    if not condition_id or not asset_token_id:
+        return None
+
+    rows = []
+    limit = max(10, DATA_API_PAGE_SIZE)
+    max_pages = max(1, DATA_API_MAX_PAGES)
+
+    for page in range(max_pages):
+        offset = page * limit
+        url = f"https://data-api.polymarket.com/trades?market={condition_id}&limit={limit}&offset={offset}"
+        try:
+            data = fetch_json_with_retries(url, timeout=30, max_retries=4)
+            if not isinstance(data, list) or not data:
+                break
+            rows.extend(data)
+            if len(data) < limit:
+                break
+        except Exception as e:
+            print(f"[Backtest] Data API trade fetch error (condition={condition_id[:12]}..., offset={offset}): {e}")
+            break
+
+    if not rows:
+        return None
+
+    # Keep only trades for the requested outcome token.
+    token = str(asset_token_id)
+    filtered = [r for r in rows if str(r.get("asset", "")) == token]
+    if not filtered:
+        return None
+
+    # Convert trade tape to coarse bars (last price per bucket).
+    bucket = max(1, int(fidelity))
+    bars = {}
+    for trade in filtered:
+        try:
+            ts = int(trade.get("timestamp"))
+            px = float(trade.get("price"))
+            bts = ts - (ts % bucket)
+            prev = bars.get(bts)
+            if prev is None or ts >= prev[0]:
+                bars[bts] = (ts, px)
+        except (TypeError, ValueError):
+            continue
+
+    if not bars:
+        return None
+
+    history = [{"t": t, "p": bars[t][1]} for t in sorted(bars.keys())]
+    print(
+        f"[Backtest] Data API fallback produced {len(history)} points "
+        f"(condition={condition_id[:12]}..., token={token[:12]}...)"
+    )
+    return history
+
+
+def _fetch_price_history_with_fallback(
+    clob_token_id: str,
+    condition_id: str,
+    fidelity: int = 60,
+) -> Tuple[Optional[List[Dict]], str]:
+    """Fetch history from CLOB; fallback to Data API trades for older closed markets."""
+    primary = _fetch_price_history(clob_token_id, fidelity=fidelity)
+    if primary:
+        return primary, "clob"
+
+    fallback = _fetch_trade_history_from_data_api(condition_id, clob_token_id, fidelity=fidelity)
+    if fallback:
+        return fallback, "data_api"
+
+    return None, "none"
 
 
 def _find_nearest_price(history: List[Dict], target_time: int, tolerance_seconds: int) -> Optional[float]:
@@ -332,7 +418,13 @@ def run_backtest_stream(
             continue
 
         # Exclude markets that already ended before the leader resolved.
-        end_str = m.get("endDate", "") or m.get("end_date", "")
+        end_str = (
+            m.get("resolutionTime", "")
+            or m.get("closedTime", "")
+            or m.get("umaEndDate", "")
+            or m.get("endDate", "")
+            or m.get("end_date", "")
+        )
         end_ts = _parse_resolution_time(end_str) if end_str else None
         if end_ts is not None and end_ts < resolution_time:
             skipped_ended_before += 1
@@ -465,6 +557,7 @@ def run_backtest_stream(
                 "category": market.get("category", "Other"),
                 "volume": market["volume"],
                 "clob_token_id": market.get("clob_token_id", ""),
+                "condition_id": market.get("condition_id", ""),
                 "confidence_score": confidence,
                 "is_same_outcome": bool(rel.get("is_same_outcome", True)),
                 "relationship_type": rel.get("relationship_type", "direct"),
@@ -490,11 +583,16 @@ def run_backtest_stream(
 
     for i, follower in enumerate(followers):
         f_clob = follower.get("clob_token_id", "")
+        f_condition = follower.get("condition_id", "")
         if not f_clob:
             trades.append({**follower, "status": "no_clob_id", "entry_price": None, "pnl": {}})
             continue
 
-        f_history = _fetch_price_history(f_clob, fidelity=60)
+        f_history, price_source = _fetch_price_history_with_fallback(
+            f_clob,
+            f_condition,
+            fidelity=60,
+        )
         if not f_history:
             trades.append({**follower, "status": "no_data", "entry_price": None, "pnl": {}})
             continue
@@ -557,6 +655,7 @@ def run_backtest_stream(
                 **follower,
                 "status": "ok",
                 "direction": direction,
+                "price_source": price_source,
                 "entry_price": round(entry_price, 4),
                 "entry_method": entry_result["method"],
                 "entry_lag_seconds": entry_result["lag_seconds"],
