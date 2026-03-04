@@ -40,14 +40,13 @@ TOLERANCES = {
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
-BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "7"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "8"))
 ENTRY_FALLBACK_MAX_LAG_SECONDS = int(
     os.environ.get("BACKTEST_ENTRY_FALLBACK_MAX_LAG_SECONDS", str(6 * 60 * 60))
 )
 DATA_API_PAGE_SIZE = int(os.environ.get("BACKTEST_DATA_API_PAGE_SIZE", "200"))
 DATA_API_MAX_PAGES = int(os.environ.get("BACKTEST_DATA_API_MAX_PAGES", "25"))
-BACKTEST_ACTIVE_FETCH_MAX = int(os.environ.get("BACKTEST_ACTIVE_FETCH_MAX", "1000"))
-BACKTEST_CLOSED_FETCH_MAX = int(os.environ.get("BACKTEST_CLOSED_FETCH_MAX", "10000"))
+BACKTEST_FETCH_MAX = int(os.environ.get("BACKTEST_FETCH_MAX", "50000"))
 
 
 def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
@@ -55,7 +54,7 @@ def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
     Fetches all markets (active + closed) sorted by volume, regardless of status.
     """
     all_markets = []
-    max_count = BACKTEST_ACTIVE_FETCH_MAX + BACKTEST_CLOSED_FETCH_MAX
+    max_count = BACKTEST_FETCH_MAX
     offset = 0
     limit = 500
 
