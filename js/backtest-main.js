@@ -764,9 +764,18 @@ function showGraph() {
 // ═══════════════════════════════════════════════════════════
 
 function formatPnl(val) {
-    if (val == null) return { text: 'N/A', cls: 'text-slate-400' };
-    const sign = val >= 0 ? '+' : '';
+    if (val == null || !Number.isFinite(val)) return { text: 'N/A', cls: 'text-slate-400' };
+
+    if (Math.abs(val) < 1e-12) {
+        return { text: '0.0%', cls: 'pnl-positive' };
+    }
+
     const cls = val >= 0 ? 'pnl-positive' : 'pnl-negative';
+    if (Number(val.toFixed(1)) === 0) {
+        return { text: val > 0 ? '<0.1%' : '>-0.1%', cls };
+    }
+
+    const sign = val > 0 ? '+' : '';
     return { text: `${sign}${val.toFixed(1)}%`, cls };
 }
 
@@ -897,7 +906,7 @@ function renderPnlChart(trades, tf) {
             .attr('dominant-baseline', 'middle')
             .attr('fill', isPositive ? '#16a34a' : '#dc2626')
             .attr('font-size', '10px').attr('font-weight', '600')
-            .text(`${isPositive ? '+' : ''}${pnl.toFixed(1)}%`);
+            .text(formatPnl(pnl).text);
     });
 }
 
@@ -1078,8 +1087,12 @@ function renderHistory() {
 
     history.forEach(entry => {
         const pnl = entry.avgPnl1d;
-        const pnlText = pnl != null ? `${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%` : 'N/A';
-        const pnlColor = pnl == null ? 'text-slate-400' : pnl >= 0 ? 'text-green-600' : 'text-red-500';
+        const { text: pnlText, cls } = formatPnl(pnl);
+        const pnlColor = pnl == null
+            ? 'text-slate-400'
+            : cls === 'pnl-positive'
+                ? 'text-green-600'
+                : 'text-red-500';
         const dateLabel = new Date(entry.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
         const card = document.createElement('div');

@@ -12,6 +12,7 @@ Streams progress events so the frontend can show a live log.
 import os
 import json
 import time
+from bisect import bisect_right
 from collections import Counter
 from datetime import datetime
 from typing import List, Dict, Optional, Generator, Tuple
@@ -31,7 +32,7 @@ TIMEFRAMES = {
     "1w": 7 * 24 * 60 * 60,
 }
 
-# Tolerance for finding nearest price point (seconds)
+# Max forward-lag (seconds) used when falling back to first-after sampling.
 TOLERANCES = {
     "5m": 3 * 60,
     "1h": 15 * 60,
@@ -40,10 +41,11 @@ TOLERANCES = {
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
-BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "6"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "7"))
 ENTRY_FALLBACK_MAX_LAG_SECONDS = int(
     os.environ.get("BACKTEST_ENTRY_FALLBACK_MAX_LAG_SECONDS", str(6 * 60 * 60))
 )
+PNL_DENOMINATOR_EPSILON = float(os.environ.get("BACKTEST_PNL_DENOMINATOR_EPSILON", "0.001"))
 DATA_API_PAGE_SIZE = int(os.environ.get("BACKTEST_DATA_API_PAGE_SIZE", "200"))
 DATA_API_MAX_PAGES = int(os.environ.get("BACKTEST_DATA_API_MAX_PAGES", "25"))
 BACKTEST_ACTIVE_FETCH_MAX = int(os.environ.get("BACKTEST_ACTIVE_FETCH_MAX", "1000"))
@@ -142,7 +144,7 @@ def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
     return result
 
 
-def _fetch_price_history(clob_token_id: str, fidelity: int = 60) -> Optional[List[Dict]]:
+def _fetch_price_history(clob_token_id: str, fidelity: int = 1) -> Optional[List[Dict]]:
     """Fetch price history from CLOB API."""
     url = f"https://clob.polymarket.com/prices-history?market={clob_token_id}&interval=max&fidelity={fidelity}"
     print(f"[Backtest] Fetching: {url}")
@@ -167,7 +169,7 @@ def _fetch_price_history(clob_token_id: str, fidelity: int = 60) -> Optional[Lis
 def _fetch_trade_history_from_data_api(
     condition_id: str,
     asset_token_id: str,
-    fidelity: int = 60,
+    fidelity: int = 1,
 ) -> Optional[List[Dict]]:
     """Fallback: reconstruct a price series from Data API trades for closed contracts."""
     if not condition_id or not asset_token_id:
@@ -228,7 +230,7 @@ def _fetch_trade_history_from_data_api(
 def _fetch_price_history_with_fallback(
     clob_token_id: str,
     condition_id: str,
-    fidelity: int = 60,
+    fidelity: int = 1,
 ) -> Tuple[Optional[List[Dict]], str]:
     """Fetch history from CLOB; fallback to Data API trades for older closed markets."""
     primary = _fetch_price_history(clob_token_id, fidelity=fidelity)
@@ -254,6 +256,32 @@ def _find_nearest_price(history: List[Dict], target_time: int, tolerance_seconds
     if best and best_diff <= tolerance_seconds:
         return best["p"]
     return None
+
+
+def _find_exit_price(history: List[Dict], target_time: int, max_forward_lag_seconds: int) -> Dict[str, object]:
+    """Sample exit price via as-of, then bounded first-after fallback."""
+    if not history:
+        return {"price": None, "method": "none", "lag_seconds": None}
+
+    times = [point["t"] for point in history]
+    asof_idx = bisect_right(times, target_time) - 1
+    if asof_idx >= 0:
+        asof_point = history[asof_idx]
+        return {
+            "price": asof_point["p"],
+            "method": "asof",
+            "lag_seconds": int(target_time - asof_point["t"]),
+        }
+
+    if max_forward_lag_seconds <= 0:
+        return {"price": None, "method": "none", "lag_seconds": None}
+
+    first_after = history[0]
+    lag_seconds = int(first_after["t"] - target_time)
+    if lag_seconds <= max_forward_lag_seconds:
+        return {"price": first_after["p"], "method": "first_after", "lag_seconds": lag_seconds}
+
+    return {"price": None, "method": "none", "lag_seconds": lag_seconds}
 
 
 def _find_entry_price(
@@ -557,7 +585,7 @@ def run_backtest_stream(
         f_history, price_source = _fetch_price_history_with_fallback(
             f_clob,
             f_condition,
-            fidelity=60,
+            fidelity=1,
         )
         if not f_history:
             trades.append({**follower, "status": "no_data", "entry_price": None, "pnl": {}})
@@ -582,35 +610,31 @@ def run_backtest_stream(
 
         # Calculate P&L at each timeframe
         pnl = {}
+        exit_method_by_tf = {}
+        exit_lag_seconds_by_tf = {}
         for tf_name, tf_seconds in TIMEFRAMES.items():
             exit_time = resolution_time + tf_seconds
-            tolerance = TOLERANCES[tf_name]
+            forward_lag_tolerance = TOLERANCES[tf_name]
 
-            exit_price = _find_nearest_price(f_history, exit_time, tolerance)
+            exit_result = _find_exit_price(f_history, exit_time, forward_lag_tolerance)
+            exit_price = exit_result["price"]
+            exit_method_by_tf[tf_name] = exit_result["method"]
+            exit_lag_seconds_by_tf[tf_name] = exit_result["lag_seconds"]
             if exit_price is None:
-                # Try using last available price if market ended before exit time
-                last_point = f_history[-1]
-                if last_point["t"] < exit_time:
-                    exit_price = last_point["p"]
-                else:
-                    pnl[tf_name] = None
-                    continue
+                pnl[tf_name] = None
+                continue
 
             # Calculate P&L based on direction
             if follower["is_same_outcome"]:
                 # Buy YES: profit if price goes up
-                if entry_price > 0.001:
-                    pnl_pct = (exit_price - entry_price) / entry_price * 100
-                else:
-                    pnl_pct = 0.0
+                denom = max(abs(entry_price), PNL_DENOMINATOR_EPSILON)
+                pnl_pct = (exit_price - entry_price) / denom * 100
             else:
                 # Buy NO (short YES): profit if YES price goes down
                 entry_no = 1 - entry_price
                 exit_no = 1 - exit_price
-                if entry_no > 0.001:
-                    pnl_pct = (exit_no - entry_no) / entry_no * 100
-                else:
-                    pnl_pct = 0.0
+                denom = max(abs(entry_no), PNL_DENOMINATOR_EPSILON)
+                pnl_pct = (exit_no - entry_no) / denom * 100
 
             pnl[tf_name] = round(pnl_pct, 2)
 
@@ -625,6 +649,8 @@ def run_backtest_stream(
                 "entry_price": round(entry_price, 4),
                 "entry_method": entry_result["method"],
                 "entry_lag_seconds": entry_result["lag_seconds"],
+                "exit_method_by_tf": exit_method_by_tf,
+                "exit_lag_seconds_by_tf": exit_lag_seconds_by_tf,
                 "pnl": pnl,
             }
         )
@@ -647,19 +673,23 @@ def run_backtest_stream(
         "total_trades": len(valid_trades),
         "skipped_trades": len(skipped_trades),
         "status_breakdown": status_breakdown,
+        "coverage_by_tf": {},
     }
 
-    if valid_trades:
-        for tf_name in TIMEFRAMES:
-            tf_pnls = [t["pnl"].get(tf_name) for t in valid_trades if t["pnl"].get(tf_name) is not None]
-            if tf_pnls:
-                summary[f"avg_pnl_{tf_name}"] = round(sum(tf_pnls) / len(tf_pnls), 2)
-                summary[f"wins_{tf_name}"] = sum(1 for p in tf_pnls if p > 0)
-                summary[f"losses_{tf_name}"] = sum(1 for p in tf_pnls if p <= 0)
-            else:
-                summary[f"avg_pnl_{tf_name}"] = None
-                summary[f"wins_{tf_name}"] = 0
-                summary[f"losses_{tf_name}"] = 0
+    for tf_name in TIMEFRAMES:
+        tf_pnls = [t["pnl"].get(tf_name) for t in valid_trades if t["pnl"].get(tf_name) is not None]
+        summary["coverage_by_tf"][tf_name] = {
+            "computed_count": len(tf_pnls),
+            "total_count": len(valid_trades),
+        }
+        if tf_pnls:
+            summary[f"avg_pnl_{tf_name}"] = round(sum(tf_pnls) / len(tf_pnls), 2)
+            summary[f"wins_{tf_name}"] = sum(1 for p in tf_pnls if p > 0)
+            summary[f"losses_{tf_name}"] = sum(1 for p in tf_pnls if p <= 0)
+        else:
+            summary[f"avg_pnl_{tf_name}"] = None
+            summary[f"wins_{tf_name}"] = 0
+            summary[f"losses_{tf_name}"] = 0
 
     # ── Done ────────────────────────────────────────────────────
     final_data = {
