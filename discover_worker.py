@@ -155,7 +155,7 @@ RULES:
 
 3. STRENGTH: The leader's resolution should cause a noticeable shift (>5%) in the follower's probability.
 
-4. SELECTIVITY: From {len(candidate_questions)} candidates, you should typically find 0-15 followers. Most candidates will NOT be followers.
+4. SELECTIVITY: From {len(candidate_questions)} candidates, you should typically find 10-30 followers. Most candidates will NOT be followers.
 
 5. CONFIDENCE SCORES: Use 0.8+ for direct, obvious links. Use 0.4-0.7 for indirect relationships. Don't include anything below 0.3.
 
