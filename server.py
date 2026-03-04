@@ -51,7 +51,7 @@ def _fetch_resolved_markets():
     all_markets = []
     offset = 0
     limit = 500
-    max_markets = 4000  # Fetch more to ensure good date coverage
+    max_markets = 10000  # Match BACKTEST_CLOSED_FETCH_MAX for consistent coverage
 
     while len(all_markets) < max_markets:
         url = (
