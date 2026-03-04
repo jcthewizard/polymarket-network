@@ -41,62 +41,50 @@ TOLERANCES = {
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
-BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "7"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "8"))
 ENTRY_FALLBACK_MAX_LAG_SECONDS = int(
     os.environ.get("BACKTEST_ENTRY_FALLBACK_MAX_LAG_SECONDS", str(6 * 60 * 60))
 )
 PNL_DENOMINATOR_EPSILON = float(os.environ.get("BACKTEST_PNL_DENOMINATOR_EPSILON", "0.001"))
 DATA_API_PAGE_SIZE = int(os.environ.get("BACKTEST_DATA_API_PAGE_SIZE", "200"))
 DATA_API_MAX_PAGES = int(os.environ.get("BACKTEST_DATA_API_MAX_PAGES", "25"))
-BACKTEST_ACTIVE_FETCH_MAX = int(os.environ.get("BACKTEST_ACTIVE_FETCH_MAX", "1000"))
-BACKTEST_CLOSED_FETCH_MAX = int(os.environ.get("BACKTEST_CLOSED_FETCH_MAX", "10000"))
+BACKTEST_FETCH_MAX = int(os.environ.get("BACKTEST_FETCH_MAX", "50000"))
 
 
 def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
-    """Fetch candidate markets from Gamma API (fallback when local DB is empty).
-    Fetches BOTH active and recently closed markets so that older leader markets
-    can find followers that existed at the time of resolution.
+    """Fetch candidate markets from Gamma API.
+    Fetches all markets (active + closed) sorted by volume, regardless of status.
     """
     all_markets = []
+    max_count = BACKTEST_FETCH_MAX
+    offset = 0
+    limit = 500
 
-    # Fetch from two sources: active markets AND high-volume closed markets
-    queries = [
-        ("active=true&closed=false", BACKTEST_ACTIVE_FETCH_MAX),  # Currently active
-        ("closed=true", BACKTEST_CLOSED_FETCH_MAX),               # Closed markets (sorted by volume)
-    ]
-
-    for query_filter, max_count in queries:
-        offset = 0
-        limit = 500
-        fetched = 0
-        while fetched < max_count:
-            url = (
-                f"https://gamma-api.polymarket.com/markets?{query_filter}"
-                f"&limit={limit}&offset={offset}"
-                f"&order=volume&ascending=false"
+    while len(all_markets) < max_count:
+        url = (
+            f"https://gamma-api.polymarket.com/markets?"
+            f"limit={limit}&offset={offset}"
+            f"&order=volume&ascending=false"
+        )
+        try:
+            markets = fetch_json_with_retries(
+                url,
+                timeout=30,
+                rate_limiter=GAMMA_RATE_LIMITER,
+                max_retries=5,
             )
-            try:
-                markets = fetch_json_with_retries(
-                    url,
-                    timeout=30,
-                    rate_limiter=GAMMA_RATE_LIMITER,
-                    max_retries=5,
-                )
-                if not markets:
-                    break
-                all_markets.extend(markets)
-                fetched += len(markets)
-                if len(markets) < limit:
-                    break
-                offset += limit
-                if offset >= max_count:
-                    break
-                time.sleep(0.1)
-            except Exception as e:
-                print(f"[Backtest] Error fetching from Gamma at offset {offset}: {e}")
+            if not markets:
                 break
+            all_markets.extend(markets)
+            if len(markets) < limit:
+                break
+            offset += limit
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"[Backtest] Error fetching from Gamma at offset {offset}: {e}")
+            break
 
-    # Deduplicate by market ID
+    # Deduplicate by market ID (in case of any API inconsistencies)
     seen_ids = set()
     unique_markets = []
     for m in all_markets:
@@ -140,7 +128,7 @@ def _fetch_candidate_markets_from_gamma(min_volume: int = 10000) -> List[Dict]:
         except (ValueError, TypeError, json.JSONDecodeError):
             continue
 
-    print(f"[Backtest] Fetched {len(result)} candidate markets from Gamma API (active + closed, vol >= ${min_volume:,})")
+    print(f"[Backtest] Fetched {len(result)} candidate markets from Gamma API (vol >= ${min_volume:,})")
     return result
 
 
