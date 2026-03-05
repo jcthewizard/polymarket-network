@@ -17,10 +17,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Generator, Tuple
 
 import database as db
-from discover_worker import (
-    _discover_relationships,
-    _fuzzy_match,
-)
+from discover_worker import _discover_relationships
 from llm_utils import CLOB_RATE_LIMITER, GAMMA_RATE_LIMITER, fetch_json_with_retries
 
 # Timeframes to measure P&L at (seconds after resolution)
@@ -34,13 +31,13 @@ TIMEFRAMES = {
 # Tolerance for finding nearest price point (seconds)
 TOLERANCES = {
     "5m": 3 * 60,
-    "1h": 15 * 60,
+    "1h": 30 * 60,
     "1d": 2 * 60 * 60,
     "1w": 6 * 60 * 60,
 }
 
 BACKTEST_BATCH_SIZE = int(os.environ.get("BACKTEST_LLM_BATCH_SIZE", "50"))
-BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "8"))
+BACKTEST_CACHE_VERSION = int(os.environ.get("BACKTEST_CACHE_VERSION", "11"))
 ENTRY_FALLBACK_MAX_LAG_SECONDS = int(
     os.environ.get("BACKTEST_ENTRY_FALLBACK_MAX_LAG_SECONDS", str(6 * 60 * 60))
 )
@@ -483,7 +480,7 @@ def run_backtest_stream(
         yield {"type": "error", "message": "No related markets found. Try a different market."}
         return
 
-    # Fuzzy matching
+    # Match results to market database
     yield {"type": "step", "message": f"Matching {len(raw_followers)} results to market database"}
 
     followers = []
@@ -491,13 +488,11 @@ def run_backtest_stream(
     seen_ids = set()
     for rel in raw_followers:
         question = rel.get("question", "")
-        matched_name = _fuzzy_match(question, list(candidate_map.keys()))
+        market = candidate_map.get(question)
 
-        if matched_name is None:
+        if market is None:
             skipped += 1
             continue
-
-        market = candidate_map[matched_name]
         if market["id"] in seen_ids:
             continue
         seen_ids.add(market["id"])
@@ -599,6 +594,10 @@ def run_backtest_stream(
                     pnl_pct = (exit_no - entry_no) / entry_no * 100
                 else:
                     pnl_pct = 0.0
+
+            # Stop-loss: cap losses at -10%
+            if pnl_pct < -10.0:
+                pnl_pct = -10.0
 
             pnl[tf_name] = round(pnl_pct, 2)
 

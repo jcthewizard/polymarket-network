@@ -1,9 +1,7 @@
 import { initDiscoverGraph } from './modules/discover-graph.js';
 
 // ─── State ──────────────────────────────────────────────────
-let allMarkets = [];
 let selectedMarket = null;
-let searchMode = 'live'; // 'live' | 'historical'
 let discoverResults = null; // { leader, followers }
 let backtestResults = null; // { leader, trades, summary, timeframes }
 let graphApi = null;
@@ -16,87 +14,10 @@ let minConfidence = 0;
 
 // ─── Init ───────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-    // Load market list for live search autocomplete
-    try {
-        const response = await fetch('/api/data/markets');
-        allMarkets = await response.json();
-        console.log(`Backtest: Loaded ${allMarkets.length} markets for live search`);
-    } catch (err) {
-        console.error('Backtest: Failed to load markets for live search', err);
-    }
-
-    // ── Mode Toggle ────────────────────────────────────────
-    const modeLive = document.getElementById('mode-live');
-    const modeHistorical = document.getElementById('mode-historical');
-    const liveSection = document.getElementById('live-search-section');
-    const historicalSection = document.getElementById('historical-search-section');
     const runBtn = document.getElementById('run-btn');
+    runBtn.textContent = 'Run Backtest';
 
-    modeLive.addEventListener('click', () => {
-        searchMode = 'live';
-        modeLive.classList.add('active');
-        modeHistorical.classList.remove('active');
-        liveSection.classList.remove('hidden');
-        historicalSection.classList.add('hidden');
-        runBtn.textContent = 'Discover Correlations';
-        clearSelection();
-    });
-
-    modeHistorical.addEventListener('click', () => {
-        searchMode = 'historical';
-        modeHistorical.classList.add('active');
-        modeLive.classList.remove('active');
-        historicalSection.classList.remove('hidden');
-        liveSection.classList.add('hidden');
-        runBtn.textContent = 'Run Backtest';
-        clearSelection();
-    });
-
-    // ── Live Search ────────────────────────────────────────
-    const liveSearchInput = document.getElementById('live-search-input');
-    const liveSearchResults = document.getElementById('live-search-results');
-
-    liveSearchInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase().trim();
-        if (query.length < 2) {
-            liveSearchResults.classList.add('hidden');
-            liveSearchResults.innerHTML = '';
-            return;
-        }
-
-        const filtered = allMarkets
-            .filter(m => m.name.toLowerCase().includes(query))
-            .slice(0, 10);
-
-        if (filtered.length === 0) {
-            liveSearchResults.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">No markets found</div>';
-        } else {
-            liveSearchResults.innerHTML = filtered.map(m => `
-                <div class="search-result-item px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0" data-id="${m.id}">
-                    <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.name)}</p>
-                    <p class="text-xs text-slate-400 mt-0.5">${m.category || 'Other'} &bull; $${(m.volume / 1000000).toFixed(1)}M &bull; ${(m.probability * 100).toFixed(0)}%</p>
-                </div>
-            `).join('');
-        }
-        liveSearchResults.classList.remove('hidden');
-    });
-
-    liveSearchResults.addEventListener('click', (e) => {
-        const item = e.target.closest('.search-result-item');
-        if (!item) return;
-        const market = allMarkets.find(m => m.id === item.dataset.id);
-        if (!market) return;
-        selectMarket(market);
-    });
-
-    document.addEventListener('click', (e) => {
-        if (!liveSearchInput.contains(e.target) && !liveSearchResults.contains(e.target)) {
-            liveSearchResults.classList.add('hidden');
-        }
-    });
-
-    // ── Historical Date Search ─────────────────────────────
-    const dateInput = document.getElementById('backtest-date');
+    // ── Historical Name Search ─────────────────────────────
     const historicalNameInput = document.getElementById('backtest-name-search');
     const marketListContainer = document.getElementById('market-list-container');
     const marketList = document.getElementById('market-list');
@@ -110,6 +31,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         marketList.innerHTML = markets.map(m => {
             const resolutionTime = m.resolutionTime || m.closedTime || m.umaEndDate || m.endDate || '';
             const resolutionLabel = resolutionTime ? resolutionTime.slice(0, 10) : '';
+            const outcome = m.resolved_outcome;
+            const outcomeLabel = outcome === 'Yes'
+                ? '<span class="text-emerald-600 font-medium">Yes</span>'
+                : outcome === 'No'
+                ? '<span class="text-red-500 font-medium">No</span>'
+                : '';
             return `
                     <div class="market-item px-4 py-3 hover:bg-white cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
                          data-id="${m.id}"
@@ -121,16 +48,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                          data-end="${m.endDate || ''}"
                          data-start="${m.startDate || ''}">
                         <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.question)}</p>
-                        <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${resolutionLabel ? ` \u2022 Resolved ${resolutionLabel}` : ''}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${resolutionLabel ? ` \u2022 Resolved ${resolutionLabel}` : ''}${outcomeLabel ? ` \u2022 ${outcomeLabel}` : ''}</p>
                     </div>`;
         }).join('');
     }
 
     async function loadHistoricalMarkets() {
-        const date = dateInput.value.trim();
         const nameQuery = historicalNameInput.value.trim();
 
-        if (!date && nameQuery.length < 2) {
+        if (nameQuery.length < 2) {
             marketListContainer.classList.add('hidden');
             return;
         }
@@ -139,28 +65,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         marketListContainer.classList.remove('hidden');
         clearSelection();
 
-        const params = new URLSearchParams();
-        if (date) params.set('date', date);
-        if (nameQuery.length >= 2) params.set('name', nameQuery);
-
         try {
-            const response = await fetch(`/api/backtest/search?${params.toString()}`);
+            const response = await fetch(`/api/backtest/search?name=${encodeURIComponent(nameQuery)}`);
             const markets = await response.json();
-
-            if (date && nameQuery.length >= 2) {
-                renderHistoricalMarkets(markets, 'No resolved markets found matching this name on the selected date');
-            } else if (date) {
-                renderHistoricalMarkets(markets, 'No resolved markets found for this date');
-            } else {
-                renderHistoricalMarkets(markets, 'No resolved markets found for this name search');
-            }
+            renderHistoricalMarkets(markets, 'No resolved markets found matching this name');
         } catch (err) {
             console.error('Historical search error:', err);
             marketList.innerHTML = '<div class="px-4 py-3 text-sm text-red-500">Error loading markets</div>';
         }
     }
-
-    dateInput.addEventListener('change', loadHistoricalMarkets);
 
     let historicalSearchDebounce = null;
     historicalNameInput.addEventListener('input', () => {
@@ -193,19 +106,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function selectMarket(market) {
         selectedMarket = market;
-        liveSearchInput.value = '';
-        liveSearchResults.classList.add('hidden');
         marketListContainer.classList.add('hidden');
 
         const name = market.name || market.question || '';
         selectedMarketName.textContent = name;
 
-        if (searchMode === 'live') {
-            selectedMarketMeta.textContent = `${market.category || 'Other'} \u2022 $${(market.volume / 1000000).toFixed(1)}M \u2022 ${(market.probability * 100).toFixed(0)}%`;
-        } else {
-            const resolvedAt = (market.resolutionTime || market.endDate || '').slice(0, 10);
-            selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved ${resolvedAt}`;
-        }
+        const resolvedAt = (market.resolutionTime || market.endDate || '').slice(0, 10);
+        selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved ${resolvedAt}`;
         selectedMarketEl.classList.remove('hidden');
         runBtn.disabled = false;
     }
@@ -218,19 +125,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('clear-selection-btn').addEventListener('click', () => {
         clearSelection();
-        if (searchMode === 'historical') {
-            marketListContainer.classList.remove('hidden');
-        }
+        marketListContainer.classList.remove('hidden');
     });
 
     // ── Run Button ─────────────────────────────────────────
     runBtn.addEventListener('click', async () => {
         if (!selectedMarket) return;
-        if (searchMode === 'live') {
-            await runDiscoverFlow();
-        } else {
-            await runBacktestFlow();
-        }
+        await runBacktestFlow();
     });
 
     // ── New Search ─────────────────────────────────────────
@@ -574,50 +475,8 @@ async function streamNDJSON(url, body, onEvent) {
 // Live Mode: Discover Flow
 // ═══════════════════════════════════════════════════════════
 
-async function runDiscoverFlow() {
-    showProgress();
-    const marketName = selectedMarket.name || selectedMarket.question;
-
-    const leaderStep = logStep(`Leader: ${marketName}`);
-    resolveStep(leaderStep);
-
-    let currentStep = null;
-
-    try {
-        const finalData = await streamNDJSON('/api/discover', { market_id: selectedMarket.id }, (event) => {
-            switch (event.type) {
-                case 'step': currentStep = logStep(event.message); break;
-                case 'result': resolveStep(currentStep, event.message); currentStep = null; break;
-                case 'error': logError(event.message, currentStep); currentStep = null; break;
-                case 'keepalive': break;
-            }
-        });
-
-        if (!finalData) { logError('No results received from server'); return; }
-
-        discoverResults = finalData;
-
-        if (!discoverResults.followers || discoverResults.followers.length === 0) {
-            logError('No follower markets found. Try a different market.');
-            return;
-        }
-
-        const doneStep = logStep(`Found ${discoverResults.followers.length} follower markets`);
-        resolveStep(doneStep, 'Loading graph...');
-
-        await new Promise(r => setTimeout(r, 600));
-
-        showGraph();
-
-    } catch (err) {
-        console.error('Discover error:', err);
-        logError(`Connection error: ${err.message}`);
-    }
-}
-
-
 // ═══════════════════════════════════════════════════════════
-// Historical Mode: Backtest Flow
+// Backtest Flow
 // ═══════════════════════════════════════════════════════════
 
 async function runBacktestFlow() {
@@ -710,7 +569,6 @@ async function runBacktestFlow() {
         sessionStorage.setItem('backtestFullResults', JSON.stringify({
             backtestResults,
             discoverResults,
-            searchMode: 'historical',
         }));
 
         // Save to persistent history

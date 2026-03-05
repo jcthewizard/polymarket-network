@@ -51,7 +51,7 @@ def _fetch_resolved_markets():
     all_markets = []
     offset = 0
     limit = 500
-    max_markets = 10000  # Match BACKTEST_CLOSED_FETCH_MAX for consistent coverage
+    max_markets = 50000
 
     while len(all_markets) < max_markets:
         url = (
@@ -110,9 +110,6 @@ def _fetch_resolved_markets():
                     resolved_outcome = "Yes"
                 elif p1 > 0.95:
                     resolved_outcome = "No"
-
-            if resolved_outcome is None:
-                continue
 
             resolved.append({
                 'id': m['id'],
@@ -659,10 +656,8 @@ Respond with ONLY the category name, nothing else."""
     def handle_backtest_search(self):
         """Search for resolved markets from Gamma API (cached).
         Supports:
-          ?date=YYYY-MM-DD — markets resolved on that date
-          ?name=text       — market-question name search
-          ?q=text          — legacy alias for name search
-        Filters can be combined (e.g., date + name).
+          ?name=text — market-question name search
+          ?q=text    — legacy alias for name search
         """
         try:
             parsed = urlparse(self.path)
@@ -670,21 +665,14 @@ Respond with ONLY the category name, nothing else."""
             name_query = params.get('name', [''])[0].lower().strip()
             legacy_query = params.get('q', [''])[0].lower().strip()
             query = name_query or legacy_query
-            date_str = params.get('date', [''])[0].strip()
 
             resolved_markets = _get_resolved_markets_cache()
 
-            if not date_str and len(query) < 2:
+            if len(query) < 2:
                 self.send_json_response([])
                 return
 
             results = resolved_markets
-            if date_str:
-                results = [
-                    m for m in results
-                    if (m.get('resolutionTime') or '')[:10] == date_str
-                ]
-
             if len(query) >= 2:
                 results = [
                     m for m in results

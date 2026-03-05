@@ -8,7 +8,6 @@ Streams progress events so the frontend can show a live log.
 
 import os
 import time
-from difflib import SequenceMatcher
 from typing import List, Dict, Optional, Generator
 
 import database as db
@@ -16,23 +15,8 @@ from llm_utils import call_openai_chat_json
 
 # Configuration
 LLM_MODEL = "gpt-5.2"
-FUZZY_MATCH_THRESHOLD = 0.6  # For matching LLM output back to exact market names
 LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "6"))
 DISCOVER_BATCH_SIZE = int(os.environ.get("DISCOVER_LLM_BATCH_SIZE", "50"))
-
-
-def _fuzzy_match(text: str, candidates: List[str], threshold: float = FUZZY_MATCH_THRESHOLD) -> Optional[str]:
-    """Find the best fuzzy match for text among candidates."""
-    best_score = 0.0
-    best_match = None
-    for c in candidates:
-        score = SequenceMatcher(None, text.lower(), c.lower()).ratio()
-        if score > best_score:
-            best_score = score
-            best_match = c
-    if best_score >= threshold:
-        return best_match
-    return None
 
 
 def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout: int = 180, on_retry=None) -> Dict:
@@ -160,7 +144,7 @@ RULES:
 5. CONFIDENCE SCORES: Use 0.8+ for direct, obvious links. Use 0.4-0.7 for indirect relationships. Don't include anything below 0.3.
 
 For each follower, provide:
-- question: The exact text of the follower market question as given above
+- index: The number of the candidate market from the list above (1-based)
 - confidence_score: 0.0-1.0
 - is_same_outcome: true if outcomes tend to move together, false if opposite
 - relationship_type: "direct" or "indirect"
@@ -168,14 +152,22 @@ For each follower, provide:
 
 Return JSON:
 {{"followers": [
-    {{"question": "...", "confidence_score": 0.85, "is_same_outcome": true, "relationship_type": "direct", "rationale": "..."}},
+    {{"index": 3, "confidence_score": 0.85, "is_same_outcome": true, "relationship_type": "direct", "rationale": "..."}},
     ...
 ]}}"""
         }
     ]
 
     data = _call_openai(messages, LLM_MODEL, openai_api_key, timeout=120, on_retry=on_retry)
-    return data.get("followers", [])
+
+    # Resolve indices to question text so callers can do direct lookups
+    resolved = []
+    for f in data.get("followers", []):
+        idx = f.get("index")
+        if isinstance(idx, int) and 1 <= idx <= len(candidate_questions):
+            f["question"] = candidate_questions[idx - 1]
+            resolved.append(f)
+    return resolved
 
 
 def save_relationships_to_db(leader_market_id: str, followers: list):
@@ -354,7 +346,7 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
     if not raw_followers:
         yield {"type": "result", "message": f"No potential followers identified across {total_batches} batches"}
 
-    # 7. Fuzzy matching
+    # 7. Match results to market database
     yield {"type": "step", "message": f"Matching {len(raw_followers)} results to market database"}
 
     followers = []
@@ -362,13 +354,11 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
     seen_ids = set()  # Deduplicate across batches
     for rel in raw_followers:
         question = rel.get("question", "")
-        matched_name = _fuzzy_match(question, list(candidate_map.keys()))
+        market = candidate_map.get(question)
 
-        if matched_name is None:
+        if market is None:
             skipped += 1
             continue
-
-        market = candidate_map[matched_name]
         if market["id"] in seen_ids:
             continue
         seen_ids.add(market["id"])
