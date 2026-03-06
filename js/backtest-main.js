@@ -1,174 +1,320 @@
-// State
+import { initDiscoverGraph } from './modules/discover-graph.js';
+
+// ─── State ──────────────────────────────────────────────────
+let allMarkets = [];
 let selectedMarket = null;
-let holdingPeriod = '1d';
-let threshold = 0.95;
-let backtestResults = null;
-let searchDebounceTimer = null;
+let searchMode = 'live'; // 'live' | 'historical'
+let discoverResults = null; // { leader, followers }
+let backtestResults = null; // { leader, trades, summary, timeframes }
+let graphApi = null;
+let categoryColorScale = null;
+let activeCategories = new Set();
 
-document.addEventListener('DOMContentLoaded', () => {
-    const searchInput = document.getElementById('backtest-search');
-    const searchResults = document.getElementById('search-results');
-    const selectedMarketEl = document.getElementById('selected-market');
-    const selectedMarketName = document.getElementById('selected-market-name');
-    const selectedMarketMeta = document.getElementById('selected-market-meta');
-    const clearSelectionBtn = document.getElementById('clear-selection-btn');
-    const backtestBtn = document.getElementById('backtest-btn');
-    const newBacktestBtn = document.getElementById('new-backtest-btn');
+// Slider state
+let selectedTimeframe = '1d';
+let minConfidence = 0;
 
-    // ── Search autocomplete (debounced API calls) ──────────────
-    searchInput.addEventListener('input', (e) => {
-        const query = e.target.value.trim();
+// ─── Init ───────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+    // Load market list for live search autocomplete
+    try {
+        const response = await fetch('/api/data/markets');
+        allMarkets = await response.json();
+        console.log(`Backtest: Loaded ${allMarkets.length} markets for live search`);
+    } catch (err) {
+        console.error('Backtest: Failed to load markets for live search', err);
+    }
 
-        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    // ── Mode Toggle ────────────────────────────────────────
+    const modeLive = document.getElementById('mode-live');
+    const modeHistorical = document.getElementById('mode-historical');
+    const liveSection = document.getElementById('live-search-section');
+    const historicalSection = document.getElementById('historical-search-section');
+    const runBtn = document.getElementById('run-btn');
 
+    modeLive.addEventListener('click', () => {
+        searchMode = 'live';
+        modeLive.classList.add('active');
+        modeHistorical.classList.remove('active');
+        liveSection.classList.remove('hidden');
+        historicalSection.classList.add('hidden');
+        runBtn.textContent = 'Discover Correlations';
+        clearSelection();
+    });
+
+    modeHistorical.addEventListener('click', () => {
+        searchMode = 'historical';
+        modeHistorical.classList.add('active');
+        modeLive.classList.remove('active');
+        historicalSection.classList.remove('hidden');
+        liveSection.classList.add('hidden');
+        runBtn.textContent = 'Run Backtest';
+        clearSelection();
+    });
+
+    // ── Live Search ────────────────────────────────────────
+    const liveSearchInput = document.getElementById('live-search-input');
+    const liveSearchResults = document.getElementById('live-search-results');
+
+    liveSearchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
         if (query.length < 2) {
-            searchResults.classList.add('hidden');
-            searchResults.innerHTML = '';
+            liveSearchResults.classList.add('hidden');
+            liveSearchResults.innerHTML = '';
             return;
         }
 
-        searchDebounceTimer = setTimeout(async () => {
-            try {
-                const response = await fetch(`/api/backtest/search?q=${encodeURIComponent(query)}`);
-                const markets = await response.json();
+        const filtered = allMarkets
+            .filter(m => m.name.toLowerCase().includes(query))
+            .slice(0, 10);
 
-                if (markets.length === 0) {
-                    searchResults.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">No resolved markets found</div>';
-                } else {
-                    searchResults.innerHTML = markets.map(m => {
-                        const endLabel = m.endDate ? m.endDate.slice(0, 10) : '';
-                        return `
-                        <div class="search-result-item px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0"
-                             data-id="${m.id}"
-                             data-question="${escapeAttr(m.question)}"
-                             data-volume="${m.volume}"
-                             data-clob='${JSON.stringify(m.clobTokenIds)}'
-                             data-end="${m.endDate || ''}">
-                            <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.question)}</p>
-                            <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${endLabel ? ` \u2022 Resolved ${endLabel}` : ''}</p>
-                        </div>`;
-                    }).join('');
-                }
-
-                searchResults.classList.remove('hidden');
-            } catch (err) {
-                console.error('Search error:', err);
-            }
-        }, 300);
+        if (filtered.length === 0) {
+            liveSearchResults.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">No markets found</div>';
+        } else {
+            liveSearchResults.innerHTML = filtered.map(m => `
+                <div class="search-result-item px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0" data-id="${m.id}">
+                    <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.name)}</p>
+                    <p class="text-xs text-slate-400 mt-0.5">${m.category || 'Other'} &bull; $${(m.volume / 1000000).toFixed(1)}M &bull; ${(m.probability * 100).toFixed(0)}%</p>
+                </div>
+            `).join('');
+        }
+        liveSearchResults.classList.remove('hidden');
     });
 
-    // Handle search result click
-    searchResults.addEventListener('click', (e) => {
+    liveSearchResults.addEventListener('click', (e) => {
         const item = e.target.closest('.search-result-item');
         if (!item) return;
-
-        const market = {
-            id: item.dataset.id,
-            question: item.dataset.question,
-            volume: parseFloat(item.dataset.volume),
-            clobTokenIds: JSON.parse(item.dataset.clob),
-            endDate: item.dataset.end,
-        };
-
+        const market = allMarkets.find(m => m.id === item.dataset.id);
+        if (!market) return;
         selectMarket(market);
     });
 
-    // Close search results when clicking outside
     document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
-            searchResults.classList.add('hidden');
+        if (!liveSearchInput.contains(e.target) && !liveSearchResults.contains(e.target)) {
+            liveSearchResults.classList.add('hidden');
         }
     });
 
+    // ── Historical Date Search ─────────────────────────────
+    const dateInput = document.getElementById('backtest-date');
+    const historicalNameInput = document.getElementById('backtest-name-search');
+    const marketListContainer = document.getElementById('market-list-container');
+    const marketList = document.getElementById('market-list');
+
+    function renderHistoricalMarkets(markets, emptyMessage) {
+        if (markets.length === 0) {
+            marketList.innerHTML = `<div class="px-4 py-3 text-sm text-slate-500">${emptyMessage}</div>`;
+            return;
+        }
+
+        marketList.innerHTML = markets.map(m => {
+            const resolutionTime = m.resolutionTime || m.closedTime || m.umaEndDate || m.endDate || '';
+            const resolutionLabel = resolutionTime ? resolutionTime.slice(0, 10) : '';
+            return `
+                    <div class="market-item px-4 py-3 hover:bg-white cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
+                         data-id="${m.id}"
+                         data-question="${escapeAttr(m.question)}"
+                         data-volume="${m.volume}"
+                         data-clob='${JSON.stringify(m.clobTokenIds)}'
+                         data-resolution="${resolutionTime}"
+                         data-resolution-source="${m.resolutionSource || ''}"
+                         data-end="${m.endDate || ''}"
+                         data-start="${m.startDate || ''}">
+                        <p class="text-sm text-slate-800 font-medium">${escapeHtml(m.question)}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">$${(m.volume / 1000000).toFixed(1)}M volume${resolutionLabel ? ` \u2022 Resolved ${resolutionLabel}` : ''}</p>
+                    </div>`;
+        }).join('');
+    }
+
+    async function loadHistoricalMarkets() {
+        const date = dateInput.value.trim();
+        const nameQuery = historicalNameInput.value.trim();
+
+        if (!date && nameQuery.length < 2) {
+            marketListContainer.classList.add('hidden');
+            return;
+        }
+
+        marketList.innerHTML = '<div class="px-4 py-3 text-sm text-slate-500">Loading...</div>';
+        marketListContainer.classList.remove('hidden');
+        clearSelection();
+
+        const params = new URLSearchParams();
+        if (date) params.set('date', date);
+        if (nameQuery.length >= 2) params.set('name', nameQuery);
+
+        try {
+            const response = await fetch(`/api/backtest/search?${params.toString()}`);
+            const markets = await response.json();
+
+            if (date && nameQuery.length >= 2) {
+                renderHistoricalMarkets(markets, 'No resolved markets found matching this name on the selected date');
+            } else if (date) {
+                renderHistoricalMarkets(markets, 'No resolved markets found for this date');
+            } else {
+                renderHistoricalMarkets(markets, 'No resolved markets found for this name search');
+            }
+        } catch (err) {
+            console.error('Historical search error:', err);
+            marketList.innerHTML = '<div class="px-4 py-3 text-sm text-red-500">Error loading markets</div>';
+        }
+    }
+
+    dateInput.addEventListener('change', loadHistoricalMarkets);
+
+    let historicalSearchDebounce = null;
+    historicalNameInput.addEventListener('input', () => {
+        if (historicalSearchDebounce) clearTimeout(historicalSearchDebounce);
+        historicalSearchDebounce = setTimeout(loadHistoricalMarkets, 300);
+    });
+
+    marketList.addEventListener('click', (e) => {
+        const item = e.target.closest('.market-item');
+        if (!item) return;
+        selectMarket({
+            id: item.dataset.id,
+            question: item.dataset.question,
+            name: item.dataset.question,
+            volume: parseFloat(item.dataset.volume),
+            clobTokenIds: JSON.parse(item.dataset.clob),
+            resolutionTime: item.dataset.resolution || item.dataset.end,
+            resolutionSource: item.dataset.resolutionSource || '',
+            endDate: item.dataset.end,
+            startDate: item.dataset.start,
+            category: 'Other',
+            probability: 0.5,
+        });
+    });
+
+    // ── Selection ──────────────────────────────────────────
+    const selectedMarketEl = document.getElementById('selected-market');
+    const selectedMarketName = document.getElementById('selected-market-name');
+    const selectedMarketMeta = document.getElementById('selected-market-meta');
+
     function selectMarket(market) {
         selectedMarket = market;
-        searchInput.value = '';
-        searchResults.classList.add('hidden');
-        searchInput.classList.add('hidden');
+        liveSearchInput.value = '';
+        liveSearchResults.classList.add('hidden');
+        marketListContainer.classList.add('hidden');
 
-        selectedMarketName.textContent = market.question;
-        selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved Yes`;
+        const name = market.name || market.question || '';
+        selectedMarketName.textContent = name;
+
+        if (searchMode === 'live') {
+            selectedMarketMeta.textContent = `${market.category || 'Other'} \u2022 $${(market.volume / 1000000).toFixed(1)}M \u2022 ${(market.probability * 100).toFixed(0)}%`;
+        } else {
+            const resolvedAt = (market.resolutionTime || market.endDate || '').slice(0, 10);
+            selectedMarketMeta.textContent = `$${(market.volume / 1000000).toFixed(1)}M volume \u2022 Resolved ${resolvedAt}`;
+        }
         selectedMarketEl.classList.remove('hidden');
-        backtestBtn.disabled = false;
+        runBtn.disabled = false;
     }
 
     function clearSelection() {
         selectedMarket = null;
         selectedMarketEl.classList.add('hidden');
-        searchInput.classList.remove('hidden');
-        searchInput.value = '';
-        searchInput.focus();
-        backtestBtn.disabled = true;
+        runBtn.disabled = true;
     }
 
-    clearSelectionBtn.addEventListener('click', clearSelection);
-
-    // ── Holding period pills ───────────────────────────────────
-    const holdingPills = document.querySelectorAll('.holding-pill');
-    holdingPills.forEach(pill => {
-        pill.addEventListener('click', () => {
-            holdingPills.forEach(p => {
-                p.className = 'holding-pill flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:border-slate-300 transition-all';
-            });
-            pill.className = 'holding-pill active flex-1 px-3 py-2 text-xs font-medium rounded-lg border border-emerald-500 bg-emerald-600 text-white transition-all';
-            holdingPeriod = pill.dataset.period;
-        });
-    });
-
-    // ── Threshold slider ───────────────────────────────────────
-    const thresholdSlider = document.getElementById('threshold-slider');
-    const thresholdDisplay = document.getElementById('threshold-display');
-    thresholdSlider.addEventListener('input', (e) => {
-        threshold = parseInt(e.target.value) / 100;
-        thresholdDisplay.textContent = `${e.target.value}%`;
-    });
-
-    // ── Backtest button ────────────────────────────────────────
-    backtestBtn.addEventListener('click', async () => {
-        if (!selectedMarket) return;
-        await runBacktest();
-    });
-
-    // ── New Backtest button ────────────────────────────────────
-    newBacktestBtn.addEventListener('click', () => {
-        document.getElementById('results-container').classList.add('hidden');
-        hideProgress();
-        document.getElementById('search-panel').classList.remove('hidden');
-        newBacktestBtn.classList.add('hidden');
-        backtestResults = null;
-        sessionStorage.removeItem('backtestResults');
+    document.getElementById('clear-selection-btn').addEventListener('click', () => {
         clearSelection();
+        if (searchMode === 'historical') {
+            marketListContainer.classList.remove('hidden');
+        }
     });
 
-    // ── Modal close handlers ───────────────────────────────────
-    document.getElementById('close-rationale-btn').addEventListener('click', closeModal);
-    document.getElementById('rationale-modal').addEventListener('click', (e) => {
-        if (e.target === document.getElementById('rationale-modal')) {
-            closeModal();
+    // ── Run Button ─────────────────────────────────────────
+    runBtn.addEventListener('click', async () => {
+        if (!selectedMarket) return;
+        if (searchMode === 'live') {
+            await runDiscoverFlow();
+        } else {
+            await runBacktestFlow();
         }
+    });
+
+    // ── New Search ─────────────────────────────────────────
+    document.getElementById('new-search-btn').addEventListener('click', () => {
+        document.getElementById('discover-viz').classList.add('hidden');
+        document.getElementById('discover-viz').innerHTML = '';
+        hideProgress();
+        hideSidebar();
+        hideResultsPanel();
+        document.getElementById('search-panel').classList.remove('hidden');
+        document.getElementById('new-search-btn').classList.add('hidden');
+        discoverResults = null;
+        backtestResults = null;
+        sessionStorage.removeItem('backtestFullResults');
+        clearSelection();
+        renderHistory();
+    });
+
+    // ── Sidebar toggle ────────────────────────────────────
+    document.getElementById('toggle-sidebar-btn').addEventListener('click', collapseSidebar);
+    document.getElementById('expand-sidebar-btn').addEventListener('click', expandSidebar);
+    document.getElementById('sidebar-tab-list').addEventListener('click', () => switchSidebarTab('list'));
+    document.getElementById('sidebar-tab-log').addEventListener('click', () => switchSidebarTab('log'));
+
+    // ── Modal handlers ────────────────────────────────────
+    document.getElementById('close-modal-btn').addEventListener('click', closeModal);
+    document.getElementById('relationship-modal').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('relationship-modal')) closeModal();
     });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            const modal = document.getElementById('rationale-modal');
-            if (!modal.classList.contains('hidden')) {
-                closeModal();
-            }
+            const modal = document.getElementById('relationship-modal');
+            if (!modal.classList.contains('hidden')) closeModal();
         }
     });
 
-    // ── Restore previous results ───────────────────────────────
+    // ── Timeframe toggle ──────────────────────────────────
+    document.getElementById('timeframe-toggle').addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-tf]');
+        if (!btn) return;
+        selectedTimeframe = btn.dataset.tf;
+        document.querySelectorAll('#timeframe-toggle button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        recomputeAndRender();
+    });
+
+    // ── Confidence slider ─────────────────────────────────
+    const confSlider = document.getElementById('confidence-slider');
+    const confDisplay = document.getElementById('confidence-display');
+    confSlider.addEventListener('input', (e) => {
+        minConfidence = parseInt(e.target.value) / 100;
+        confDisplay.textContent = `${e.target.value}%`;
+        recomputeAndRender();
+    });
+
+    // ── Results panel toggle ──────────────────────────────
+    document.getElementById('results-panel-header').addEventListener('click', toggleResultsPanel);
+    document.getElementById('results-toggle-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleResultsPanel();
+    });
+
+    // ── History ────────────────────────────────────────────
+    document.getElementById('clear-history-btn').addEventListener('click', () => {
+        localStorage.removeItem('backtestHistory');
+        renderHistory();
+    });
+
+    // ── Restore ───────────────────────────────────────────
+    renderHistory();
     restoreFromSession();
 });
 
 
-// ─── Progress Log Helpers ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// Progress Log Helpers
+// ═══════════════════════════════════════════════════════════
 
 function showProgress() {
     document.getElementById('panel-title').classList.add('hidden');
     document.getElementById('search-form').classList.add('hidden');
     const progressBody = document.getElementById('progress-body');
     progressBody.innerHTML = '';
-    delete progressBody.dataset.lineInit;
+    progressBody.removeAttribute('style');
     document.getElementById('progress-log').classList.remove('hidden');
     document.getElementById('panel-wrapper').classList.remove('max-w-lg');
     document.getElementById('panel-wrapper').classList.add('max-w-xl');
@@ -184,23 +330,11 @@ function hideProgress() {
 
 function logStep(message) {
     const body = document.getElementById('progress-body');
-
-    if (!body.dataset.lineInit) {
-        body.style.position = 'relative';
-        body.style.paddingLeft = '20px';
-        const line = document.createElement('div');
-        line.id = 'progress-line';
-        line.style.cssText = 'position:absolute;left:9px;top:10px;bottom:0;width:2px;background:#e2e8f0;';
-        body.appendChild(line);
-        body.dataset.lineInit = '1';
-    }
-
     const row = document.createElement('div');
-    row.className = 'flex items-start gap-3 py-1';
-    row.style.position = 'relative';
+    row.className = 'flex items-start gap-3 py-1.5';
     row.innerHTML = `
-        <div class="step-icon w-5 h-5 flex-shrink-0 rounded-full border-2 border-emerald-400 flex items-center justify-center bg-white" style="margin-left:-20px;z-index:1;">
-            <div class="w-2 h-2 rounded-full bg-emerald-400 step-pulse"></div>
+        <div class="step-icon w-5 h-5 flex-shrink-0 rounded-full border-2 border-blue-400 flex items-center justify-center bg-white">
+            <div class="w-2 h-2 rounded-full bg-blue-400 step-pulse"></div>
         </div>
         <div class="flex-1 min-w-0">
             <p class="text-sm text-slate-700 font-medium">${message}</p>
@@ -214,8 +348,7 @@ function logStep(message) {
 function resolveStep(stepEl, detail) {
     if (stepEl) {
         const icon = stepEl.querySelector('.step-icon');
-        icon.className = 'w-5 h-5 flex-shrink-0 rounded-full bg-green-100 flex items-center justify-center';
-        icon.style.zIndex = '1';
+        icon.className = 'step-icon w-5 h-5 flex-shrink-0 rounded-full bg-green-100 flex items-center justify-center';
         icon.innerHTML = `<svg class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>`;
     }
     if (detail && stepEl) {
@@ -228,8 +361,7 @@ function resolveStep(stepEl, detail) {
 function logError(message, stepEl) {
     if (stepEl) {
         const icon = stepEl.querySelector('.step-icon');
-        icon.className = 'w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center';
-        icon.style.zIndex = '1';
+        icon.className = 'step-icon w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center';
         icon.innerHTML = `<svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>`;
         const detailEl = stepEl.querySelector('.step-detail');
         detailEl.textContent = message;
@@ -238,17 +370,15 @@ function logError(message, stepEl) {
     } else {
         const body = document.getElementById('progress-body');
         const row = document.createElement('div');
-        row.className = 'flex items-start gap-3 py-1';
-        row.style.position = 'relative';
+        row.className = 'flex items-start gap-3 py-1.5';
         row.innerHTML = `
-            <div class="w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center" style="margin-left:-20px;z-index:1;">
+            <div class="w-5 h-5 flex-shrink-0 rounded-full bg-red-100 flex items-center justify-center">
                 <svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>
             </div>
             <p class="text-sm text-red-600">${message}</p>`;
         body.appendChild(row);
         body.scrollTop = body.scrollHeight;
     }
-
     showRetryButton();
 }
 
@@ -257,7 +387,7 @@ function showRetryButton() {
     if (body.querySelector('.retry-btn')) return;
     const btn = document.createElement('button');
     btn.className = 'retry-btn mt-4 w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors text-sm';
-    btn.textContent = 'New Backtest';
+    btn.textContent = 'New Search';
     btn.addEventListener('click', () => {
         hideProgress();
         document.getElementById('search-panel').classList.remove('hidden');
@@ -267,108 +397,328 @@ function showRetryButton() {
 }
 
 
-// ─── Stream-based Backtest ──────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// Sidebar Helpers
+// ═══════════════════════════════════════════════════════════
 
-async function runBacktest() {
-    showProgress();
+function cleanupStepsHtml(container) {
+    const line = container.querySelector('#progress-line');
+    if (line) line.remove();
+    container.querySelectorAll('.step-icon').forEach(icon => {
+        icon.style.marginLeft = '';
+        icon.style.zIndex = '';
+    });
+    container.querySelectorAll('[style*="position"]').forEach(el => {
+        el.style.position = '';
+    });
+}
 
-    const leaderStep = logStep(`Leader: ${selectedMarket.question}`);
-    resolveStep(leaderStep);
+function showSidebar() {
+    const sidebar = document.getElementById('discovery-sidebar');
+    const sidebarSteps = document.getElementById('sidebar-steps');
+    const progressBody = document.getElementById('progress-body');
 
-    const configStep = logStep(`Config: ${holdingPeriod} hold, ${Math.round(threshold * 100)}% threshold`);
-    resolveStep(configStep);
+    sidebarSteps.innerHTML = progressBody.innerHTML;
+    cleanupStepsHtml(sidebarSteps);
+    switchSidebarTab('list');
+    sidebar.classList.remove('translate-x-[-120%]');
+    sidebar.classList.add('translate-x-0');
+    document.getElementById('expand-sidebar-btn').classList.add('hidden');
+}
 
-    let currentStep = null;
-    let finalData = null;
+function hideSidebar() {
+    const sidebar = document.getElementById('discovery-sidebar');
+    sidebar.classList.add('translate-x-[-120%]');
+    sidebar.classList.remove('translate-x-0');
+    document.getElementById('expand-sidebar-btn').classList.add('hidden');
+}
 
-    const clobTokenId = selectedMarket.clobTokenIds?.[0] || '';
-    if (!clobTokenId) {
-        logError('No CLOB token ID found for this market');
+function collapseSidebar() {
+    const sidebar = document.getElementById('discovery-sidebar');
+    sidebar.classList.add('translate-x-[-120%]');
+    sidebar.classList.remove('translate-x-0');
+    document.getElementById('expand-sidebar-btn').classList.remove('hidden');
+}
+
+function expandSidebar() {
+    const sidebar = document.getElementById('discovery-sidebar');
+    sidebar.classList.remove('translate-x-[-120%]');
+    sidebar.classList.add('translate-x-0');
+    document.getElementById('expand-sidebar-btn').classList.add('hidden');
+}
+
+function switchSidebarTab(tab) {
+    const listTab = document.getElementById('sidebar-tab-list');
+    const logTab = document.getElementById('sidebar-tab-log');
+    const listContent = document.getElementById('sidebar-list');
+    const stepsContent = document.getElementById('sidebar-steps');
+
+    if (tab === 'list') {
+        listTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-800 text-white transition-colors';
+        logTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md text-slate-500 hover:bg-slate-100 transition-colors';
+        listContent.classList.remove('hidden');
+        stepsContent.classList.add('hidden');
+    } else {
+        logTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-800 text-white transition-colors';
+        listTab.className = 'px-2.5 py-1 text-xs font-semibold rounded-md text-slate-500 hover:bg-slate-100 transition-colors';
+        stepsContent.classList.remove('hidden');
+        listContent.classList.add('hidden');
+    }
+}
+
+function buildFollowerList() {
+    const container = document.getElementById('sidebar-list');
+    container.innerHTML = '';
+
+    if (!discoverResults?.followers?.length) {
+        container.innerHTML = '<p class="text-sm text-slate-400 p-4">No followers found.</p>';
         return;
     }
 
+    const sorted = [...discoverResults.followers].sort((a, b) => b.confidence_score - a.confidence_score);
+
+    sorted.forEach(f => {
+        const conf = Math.round(f.confidence_score * 100);
+        const tier = f.confidence_score >= 0.7 ? 'high' : f.confidence_score >= 0.4 ? 'med' : 'low';
+        const confColor = tier === 'high' ? 'bg-green-100 text-green-700' : tier === 'med' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700';
+        const outcomeLabel = f.is_same_outcome ? 'Same' : 'Opposite';
+        const outcomeColor = f.is_same_outcome ? 'text-slate-500' : 'text-orange-500';
+
+        const market = f.market || f;
+        const row = document.createElement('div');
+        row.className = 'px-4 py-3 border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors';
+        row.dataset.marketId = market.id;
+        row.innerHTML = `
+            <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-slate-800 leading-tight flex-1">${escapeHtml(market.name)}</p>
+                <span class="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${confColor}">${conf}%</span>
+            </div>
+            <div class="flex items-center gap-2 mt-1.5">
+                <span class="text-[10px] ${outcomeColor} font-medium">${outcomeLabel}</span>
+                <span class="text-[10px] text-slate-400">${market.category || 'Other'}</span>
+                <span class="text-[10px] text-slate-400">$${(market.volume / 1000000).toFixed(1)}M</span>
+            </div>`;
+
+        row.addEventListener('mouseenter', () => { if (graphApi) graphApi.highlightNode(market.id); });
+        row.addEventListener('mouseleave', () => { if (graphApi) graphApi.clearHighlight(); });
+        row.addEventListener('click', () => openRelationshipModal(f, discoverResults.leader));
+
+        container.appendChild(row);
+    });
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Results Panel
+// ═══════════════════════════════════════════════════════════
+
+function showResultsPanel() {
+    const panel = document.getElementById('results-panel');
+    panel.classList.remove('hidden', 'collapsed');
+}
+
+function hideResultsPanel() {
+    document.getElementById('results-panel').classList.add('hidden');
+}
+
+function toggleResultsPanel() {
+    const panel = document.getElementById('results-panel');
+    panel.classList.toggle('collapsed');
+    const icon = document.querySelector('#results-toggle-btn svg');
+    if (panel.classList.contains('collapsed')) {
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        icon.style.transform = '';
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Stream Helpers
+// ═══════════════════════════════════════════════════════════
+
+async function streamNDJSON(url, body, onEvent) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalData = null;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            let event;
+            try { event = JSON.parse(line); } catch { continue; }
+            if (event.type === 'done') finalData = event.data;
+            onEvent(event);
+        }
+    }
+    return finalData;
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Live Mode: Discover Flow
+// ═══════════════════════════════════════════════════════════
+
+async function runDiscoverFlow() {
+    showProgress();
+    const marketName = selectedMarket.name || selectedMarket.question;
+
+    const leaderStep = logStep(`Leader: ${marketName}`);
+    resolveStep(leaderStep);
+
+    let currentStep = null;
+
     try {
-        const response = await fetch('/api/backtest', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                market_id: selectedMarket.id,
-                market_question: selectedMarket.question,
-                clob_token_id: clobTokenId,
-                holding_period: holdingPeriod,
-                threshold: threshold,
-            }),
+        const finalData = await streamNDJSON('/api/discover', { market_id: selectedMarket.id }, (event) => {
+            switch (event.type) {
+                case 'step': currentStep = logStep(event.message); break;
+                case 'result': resolveStep(currentStep, event.message); currentStep = null; break;
+                case 'error': logError(event.message, currentStep); currentStep = null; break;
+                case 'keepalive': break;
+            }
         });
 
-        if (!response.ok) {
-            logError(`Server error: ${response.status}`);
+        if (!finalData) { logError('No results received from server'); return; }
+
+        discoverResults = finalData;
+
+        if (!discoverResults.followers || discoverResults.followers.length === 0) {
+            logError('No follower markets found. Try a different market.');
             return;
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+        const doneStep = logStep(`Found ${discoverResults.followers.length} follower markets`);
+        resolveStep(doneStep, 'Loading graph...');
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        await new Promise(r => setTimeout(r, 600));
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
+        showGraph();
 
-            for (const line of lines) {
-                if (!line.trim()) continue;
+    } catch (err) {
+        console.error('Discover error:', err);
+        logError(`Connection error: ${err.message}`);
+    }
+}
 
-                let event;
-                try {
-                    event = JSON.parse(line);
-                } catch {
-                    continue;
-                }
 
-                switch (event.type) {
-                    case 'step':
-                        currentStep = logStep(event.message);
-                        break;
-                    case 'result':
-                        resolveStep(currentStep, event.message);
-                        currentStep = null;
-                        break;
-                    case 'error':
-                        logError(event.message, currentStep);
-                        currentStep = null;
-                        break;
-                    case 'done':
-                        finalData = event.data;
-                        break;
-                    case 'keepalive':
-                        break;
-                }
+// ═══════════════════════════════════════════════════════════
+// Historical Mode: Backtest Flow
+// ═══════════════════════════════════════════════════════════
+
+async function runBacktestFlow() {
+    showProgress();
+    const marketName = selectedMarket.name || selectedMarket.question;
+    const resolutionTime = selectedMarket.resolutionTime || selectedMarket.endDate || '';
+
+    const leaderStep = logStep(`Leader: ${marketName}`);
+    resolveStep(leaderStep);
+    const configStep = logStep(`Resolution date: ${resolutionTime.slice(0, 10)}`);
+    resolveStep(configStep);
+
+    const clobTokenId = selectedMarket.clobTokenIds?.[0] || '';
+    if (!clobTokenId) { logError('No CLOB token ID found for this market'); return; }
+
+    let currentStep = null;
+
+    try {
+        const finalData = await streamNDJSON('/api/backtest', {
+            market_id: selectedMarket.id,
+            market_question: marketName,
+            clob_token_id: clobTokenId,
+            resolution_time: resolutionTime,
+            // Backward compatibility for older server code paths.
+            end_date: selectedMarket.endDate || resolutionTime,
+        }, (event) => {
+            switch (event.type) {
+                case 'step': currentStep = logStep(event.message); break;
+                case 'result': resolveStep(currentStep, event.message); currentStep = null; break;
+                case 'error': logError(event.message, currentStep); currentStep = null; break;
+                case 'keepalive': break;
             }
-        }
+        });
 
-        if (!finalData) {
-            logError('No results received from server');
-            return;
-        }
+        if (!finalData) { logError('No results received from server'); return; }
 
         backtestResults = finalData;
 
+        // Build discoverResults from backtest trades for the graph
         const validTrades = finalData.trades.filter(t => t.status === 'ok');
+        discoverResults = {
+            leader: {
+                id: finalData.leader.id,
+                name: finalData.leader.question,
+                category: 'Other',
+                volume: selectedMarket.volume || 0,
+                probability: 0.5,
+            },
+            followers: finalData.trades.map(t => ({
+                confidence_score: t.confidence_score || 0.5,
+                is_same_outcome: t.is_same_outcome !== false,
+                relationship_type: t.relationship_type || 'direct',
+                rationale: t.rationale || '',
+                market: {
+                    id: t.id,
+                    name: t.name,
+                    category: t.category || 'Other',
+                    volume: t.volume || 0,
+                    probability: 0.5,
+                },
+                // Attach trade data for modal
+                _trade: t,
+            })),
+        };
+
         if (validTrades.length === 0) {
-            logError('No executable trades found. Related markets had no price data at the signal time.');
+            const breakdown = finalData.summary?.status_breakdown || {};
+            const reasonParts = Object.entries(breakdown)
+                .filter(([status, count]) => status !== 'ok' && count > 0)
+                .sort((a, b) => b[1] - a[1])
+                .map(([status, count]) => `${status}: ${count}`);
+            const reasonText = reasonParts.length
+                ? ` Skip reasons: ${reasonParts.join(', ')}.`
+                : ' Related markets had no price data at the resolution time.';
+            logError(`No executable trades found.${reasonText}`);
+            // Still show graph if we have followers
+            if (discoverResults.followers.length > 0) {
+                showGraph();
+            }
             return;
         }
 
         const doneStep = logStep(`Backtest complete: ${validTrades.length} trades analyzed`);
-        resolveStep(doneStep, `Average P&L: ${finalData.summary.avg_pnl_pct >= 0 ? '+' : ''}${finalData.summary.avg_pnl_pct.toFixed(2)}%`);
+        const avg = finalData.summary[`avg_pnl_${selectedTimeframe}`];
+        resolveStep(doneStep, avg != null ? `Average ${selectedTimeframe} P&L: ${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%` : 'Complete');
 
         await new Promise(r => setTimeout(r, 600));
 
-        sessionStorage.setItem('backtestResults', JSON.stringify(backtestResults));
+        // Persist to session
+        sessionStorage.setItem('backtestFullResults', JSON.stringify({
+            backtestResults,
+            discoverResults,
+            searchMode: 'historical',
+        }));
 
-        showResults(backtestResults);
+        // Save to persistent history
+        saveToHistory(backtestResults, discoverResults);
+
+        showGraph();
+        showResultsPanel();
+        recomputeAndRender();
 
     } catch (err) {
         console.error('Backtest error:', err);
@@ -377,100 +727,124 @@ async function runBacktest() {
 }
 
 
-// ─── Results Display ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// Graph Display
+// ═══════════════════════════════════════════════════════════
 
-function showResults(data) {
+function showGraph() {
+    showSidebar();
     document.getElementById('search-panel').classList.add('hidden');
-    document.getElementById('new-backtest-btn').classList.remove('hidden');
 
-    const container = document.getElementById('results-container');
-    container.classList.remove('hidden');
+    const vizContainer = document.getElementById('discover-viz');
+    vizContainer.classList.remove('hidden');
+    vizContainer.innerHTML = '';
 
-    // Summary
-    document.getElementById('summary-leader').textContent = data.leader.question;
-    document.getElementById('summary-signal').textContent = `Signal: ${data.leader.signal_time_formatted}`;
+    document.getElementById('new-search-btn').classList.remove('hidden');
 
-    const periodLabels = { '15m': '15 minutes', '1h': '1 hour', '1d': '1 day', 'resolution': 'Until resolution' };
-    document.getElementById('summary-holding').textContent = `Hold: ${periodLabels[data.holding_period] || data.holding_period}`;
-    document.getElementById('summary-trade-count').textContent = `Trades: ${data.summary.total_trades}${data.summary.skipped_trades ? ` (${data.summary.skipped_trades} skipped)` : ''}`;
+    // Build category color scale
+    if (discoverResults?.followers?.length) {
+        const categories = Array.from(new Set([
+            discoverResults.leader.category,
+            ...discoverResults.followers.map(f => (f.market || f).category)
+        ])).sort();
+        activeCategories = new Set(categories);
+        categoryColorScale = d3.scaleOrdinal().domain(categories).range(d3.schemeTableau10);
+    }
 
-    const pnlEl = document.getElementById('summary-pnl');
-    const avgPnl = data.summary.avg_pnl_pct;
-    pnlEl.textContent = `${avgPnl >= 0 ? '+' : ''}${avgPnl.toFixed(2)}%`;
-    pnlEl.className = `text-4xl font-bold ${avgPnl >= 0 ? 'pnl-hero-positive' : 'pnl-hero-negative'}`;
+    graphApi = initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
+        openRelationshipModal(edgeData, discoverResults.leader);
+    }, categoryColorScale);
 
-    document.getElementById('summary-wins').textContent = `${data.summary.winning_trades} winning`;
-    document.getElementById('summary-losses').textContent = `${data.summary.losing_trades} losing`;
-
-    // Trades table
-    renderTradesTable(data.trades);
-
-    // P&L chart
-    renderPnlChart(data.trades.filter(t => t.status === 'ok'));
+    buildFollowerList();
 }
 
-function renderTradesTable(trades) {
+
+// ═══════════════════════════════════════════════════════════
+// Slider-driven Recompute + Render
+// ═══════════════════════════════════════════════════════════
+
+function formatPnl(val) {
+    if (val == null) return { text: 'N/A', cls: 'text-slate-400' };
+    const sign = val >= 0 ? '+' : '';
+    const cls = val >= 0 ? 'pnl-positive' : 'pnl-negative';
+    return { text: `${sign}${val.toFixed(1)}%`, cls };
+}
+
+function recomputeAndRender() {
+    if (!backtestResults) return;
+
+    const allTrades = backtestResults.trades;
+    const tf = selectedTimeframe;
+
+    // Filter by confidence
+    const filtered = allTrades.filter(t =>
+        t.status === 'ok' && (t.confidence_score || 0) >= minConfidence
+    );
+
+    const total = allTrades.filter(t => t.status === 'ok').length;
+    document.getElementById('results-trade-count').textContent = `Showing ${filtered.length} of ${total} trades`;
+
+    // Summary
+    document.getElementById('summary-leader').textContent = backtestResults.leader.question;
+    document.getElementById('summary-resolution').textContent = `Resolved: ${backtestResults.leader.resolution_time_formatted}`;
+
+    for (const tfKey of ['5m', '1h', '1d', '1w']) {
+        const pnls = filtered.map(t => t.pnl?.[tfKey]).filter(v => v != null);
+        const avg = pnls.length > 0 ? pnls.reduce((a, b) => a + b, 0) / pnls.length : null;
+        const el = document.getElementById(`summary-pnl-${tfKey}`);
+        const { text, cls } = formatPnl(avg);
+        el.textContent = text;
+        el.className = `text-lg font-bold ${cls}`;
+    }
+
+    // Table
+    renderTradesTable(filtered, tf);
+
+    // Chart
+    document.getElementById('pnl-chart-title').textContent = `P&L by Trade (${tf})`;
+    renderPnlChart(filtered, tf);
+}
+
+function renderTradesTable(trades, tf) {
     const tbody = document.getElementById('trades-tbody');
     tbody.innerHTML = '';
 
-    // Sort: valid trades first (by P&L descending), then skipped
-    const sorted = [...trades].sort((a, b) => {
-        if (a.status === 'ok' && b.status !== 'ok') return -1;
-        if (a.status !== 'ok' && b.status === 'ok') return 1;
-        if (a.status === 'ok' && b.status === 'ok') return (b.pnl_pct || 0) - (a.pnl_pct || 0);
-        return 0;
-    });
+    const sorted = [...trades].sort((a, b) => ((b.pnl?.[tf] ?? 0) - (a.pnl?.[tf] ?? 0)));
 
     sorted.forEach(trade => {
         const tr = document.createElement('tr');
-        const isValid = trade.status === 'ok';
+        const dirColor = trade.direction === 'BUY' ? 'text-emerald-600' : 'text-orange-600';
+        const pnl = formatPnl(trade.pnl?.[tf]);
 
-        tr.className = `trade-row border-b border-slate-50 ${isValid ? 'cursor-pointer hover:bg-slate-50' : 'opacity-50'}`;
+        tr.className = 'trade-row border-b border-slate-50 cursor-pointer hover:bg-slate-50';
+        tr.innerHTML = `
+            <td class="px-4 py-2.5">
+                <p class="font-medium text-slate-800 leading-tight text-xs">${escapeHtml(trade.name)}</p>
+                <p class="text-[10px] text-slate-400 mt-0.5">${trade.category || ''}</p>
+            </td>
+            <td class="px-3 py-2.5 font-mono font-semibold text-xs ${dirColor}">${trade.direction}</td>
+            <td class="px-3 py-2.5 font-mono text-slate-600 text-xs">${(trade.entry_price * 100).toFixed(1)}%</td>
+            <td class="px-3 py-2.5 font-mono font-bold text-xs ${pnl.cls}">${pnl.text}</td>
+            <td class="px-3 py-2.5 font-mono text-slate-500 text-xs">${Math.round((trade.confidence_score || 0) * 100)}%</td>`;
 
-        if (isValid) {
-            const pnlColor = trade.pnl_pct >= 0 ? 'pnl-positive' : 'pnl-negative';
-            const dirColor = trade.direction === 'BUY' ? 'text-emerald-600' : 'text-orange-600';
-            tr.innerHTML = `
-                <td class="px-6 py-3">
-                    <p class="font-medium text-slate-800 leading-tight">${escapeHtml(trade.name)}</p>
-                    <p class="text-xs text-slate-400 mt-0.5">${trade.category || ''}</p>
-                </td>
-                <td class="px-4 py-3 font-mono font-semibold ${dirColor}">${trade.direction}</td>
-                <td class="px-4 py-3 font-mono text-slate-600">${(trade.entry_price * 100).toFixed(1)}%</td>
-                <td class="px-4 py-3 font-mono text-slate-600">${(trade.exit_price * 100).toFixed(1)}%</td>
-                <td class="px-4 py-3 font-mono font-bold ${pnlColor}">${trade.pnl_pct >= 0 ? '+' : ''}${trade.pnl_pct.toFixed(1)}%</td>
-                <td class="px-4 py-3 font-mono text-slate-500">${Math.round(trade.confidence_score * 100)}%</td>`;
-
-            tr.addEventListener('click', () => openTradeModal(trade));
-        } else {
-            tr.innerHTML = `
-                <td class="px-6 py-3">
-                    <p class="font-medium text-slate-500 leading-tight">${escapeHtml(trade.name)}</p>
-                    <p class="text-xs text-slate-400 mt-0.5">${trade.category || ''}</p>
-                </td>
-                <td class="px-4 py-3 text-slate-400">--</td>
-                <td class="px-4 py-3 text-slate-400">--</td>
-                <td class="px-4 py-3 text-slate-400">--</td>
-                <td class="px-4 py-3 text-slate-400">N/A</td>
-                <td class="px-4 py-3 font-mono text-slate-400">${Math.round(trade.confidence_score * 100)}%</td>`;
-        }
-
+        tr.addEventListener('click', () => openTradeModal(trade));
         tbody.appendChild(tr);
     });
 }
 
-function renderPnlChart(trades) {
+function renderPnlChart(trades, tf) {
     const container = document.getElementById('pnl-chart');
     container.innerHTML = '';
 
-    if (trades.length === 0) return;
+    const chartTrades = trades.filter(t => t.pnl?.[tf] != null);
+    if (chartTrades.length === 0) return;
 
-    const sorted = [...trades].sort((a, b) => b.pnl_pct - a.pnl_pct);
+    const sorted = [...chartTrades].sort((a, b) => b.pnl[tf] - a.pnl[tf]);
 
     const margin = { top: 10, right: 60, bottom: 10, left: 200 };
-    const barHeight = 28;
-    const barGap = 4;
-    const width = Math.min(container.clientWidth, 800);
+    const barHeight = 24;
+    const barGap = 3;
+    const width = Math.min(container.clientWidth || 700, 800);
     const height = sorted.length * (barHeight + barGap) + margin.top + margin.bottom;
 
     const svg = d3.select(container)
@@ -478,7 +852,11 @@ function renderPnlChart(trades) {
         .attr('width', width)
         .attr('height', height);
 
-    const maxAbs = Math.max(Math.abs(d3.min(sorted, d => d.pnl_pct)), Math.abs(d3.max(sorted, d => d.pnl_pct)), 1);
+    const maxAbs = Math.max(
+        Math.abs(d3.min(sorted, d => d.pnl[tf])),
+        Math.abs(d3.max(sorted, d => d.pnl[tf])),
+        1
+    );
 
     const xScale = d3.scaleLinear()
         .domain([-maxAbs, maxAbs])
@@ -486,75 +864,122 @@ function renderPnlChart(trades) {
 
     const zeroX = xScale(0);
 
-    // Zero line
     svg.append('line')
-        .attr('x1', zeroX)
-        .attr('x2', zeroX)
-        .attr('y1', margin.top)
-        .attr('y2', height - margin.bottom)
-        .attr('stroke', '#cbd5e1')
-        .attr('stroke-width', 1);
+        .attr('x1', zeroX).attr('x2', zeroX)
+        .attr('y1', margin.top).attr('y2', height - margin.bottom)
+        .attr('stroke', '#cbd5e1').attr('stroke-width', 1);
 
     sorted.forEach((trade, i) => {
         const y = margin.top + i * (barHeight + barGap);
-        const isPositive = trade.pnl_pct >= 0;
-        const barStart = isPositive ? zeroX : xScale(trade.pnl_pct);
-        const barWidth = Math.abs(xScale(trade.pnl_pct) - zeroX);
+        const pnl = trade.pnl[tf];
+        const isPositive = pnl >= 0;
+        const barStart = isPositive ? zeroX : xScale(pnl);
+        const barWidth = Math.abs(xScale(pnl) - zeroX);
 
-        // Bar
         svg.append('rect')
-            .attr('x', barStart)
-            .attr('y', y)
-            .attr('width', Math.max(barWidth, 1))
-            .attr('height', barHeight)
-            .attr('rx', 4)
+            .attr('x', barStart).attr('y', y)
+            .attr('width', Math.max(barWidth, 1)).attr('height', barHeight)
+            .attr('rx', 3)
             .attr('fill', isPositive ? '#16a34a' : '#dc2626')
             .attr('opacity', 0.8);
 
-        // Market name (truncated)
-        const name = trade.name.length > 35 ? trade.name.slice(0, 32) + '...' : trade.name;
+        const name = trade.name.length > 30 ? trade.name.slice(0, 27) + '...' : trade.name;
         svg.append('text')
-            .attr('x', margin.left - 8)
-            .attr('y', y + barHeight / 2)
-            .attr('text-anchor', 'end')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', '#475569')
-            .attr('font-size', '11px')
+            .attr('x', margin.left - 8).attr('y', y + barHeight / 2)
+            .attr('text-anchor', 'end').attr('dominant-baseline', 'middle')
+            .attr('fill', '#475569').attr('font-size', '10px')
             .text(name);
 
-        // P&L label
         svg.append('text')
-            .attr('x', isPositive ? xScale(trade.pnl_pct) + 6 : barStart - 6)
+            .attr('x', isPositive ? xScale(pnl) + 6 : barStart - 6)
             .attr('y', y + barHeight / 2)
             .attr('text-anchor', isPositive ? 'start' : 'end')
             .attr('dominant-baseline', 'middle')
             .attr('fill', isPositive ? '#16a34a' : '#dc2626')
-            .attr('font-size', '11px')
-            .attr('font-weight', '600')
-            .text(`${isPositive ? '+' : ''}${trade.pnl_pct.toFixed(1)}%`);
+            .attr('font-size', '10px').attr('font-weight', '600')
+            .text(`${isPositive ? '+' : ''}${pnl.toFixed(1)}%`);
     });
 }
 
 
-// ─── Trade Modal ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// Modals
+// ═══════════════════════════════════════════════════════════
 
-function openTradeModal(trade) {
-    const modal = document.getElementById('rationale-modal');
+function openRelationshipModal(followerData, leader) {
+    const modal = document.getElementById('relationship-modal');
     const content = modal.querySelector('.modal-content');
 
-    document.getElementById('modal-trade-name').textContent = trade.name;
+    const market = followerData.market || followerData;
 
-    const dirEl = document.getElementById('modal-direction');
-    dirEl.textContent = trade.direction;
-    dirEl.className = `text-sm font-bold ${trade.direction === 'BUY' ? 'text-emerald-600' : 'text-orange-600'}`;
+    document.getElementById('modal-title').textContent =
+        `${leader.name} \u2192 ${market.name}`;
 
-    document.getElementById('modal-prices').textContent = `${(trade.entry_price * 100).toFixed(1)}% \u2192 ${(trade.exit_price * 100).toFixed(1)}%`;
+    // Confidence badge
+    const confidence = followerData.confidence_score;
+    const confEl = document.getElementById('modal-confidence');
+    const confPct = Math.round(confidence * 100);
+    confEl.textContent = `${confPct}%`;
+    confEl.className = `px-3 py-1 rounded-full text-sm font-semibold ${confidence >= 0.8 ? 'bg-green-100 text-green-700' :
+        confidence >= 0.5 ? 'bg-yellow-100 text-yellow-700' :
+            'bg-orange-100 text-orange-700'
+        }`;
 
-    const pnlEl = document.getElementById('modal-pnl');
-    pnlEl.textContent = `${trade.pnl_pct >= 0 ? '+' : ''}${trade.pnl_pct.toFixed(2)}%`;
-    pnlEl.className = `text-sm font-bold ${trade.pnl_pct >= 0 ? 'pnl-positive' : 'pnl-negative'}`;
+    // Confidence bar
+    document.getElementById('modal-confidence-pct').textContent = `${confPct}%`;
+    const bar = document.getElementById('modal-confidence-bar');
+    bar.style.width = `${confPct}%`;
+    bar.className = `h-2 rounded-full transition-all duration-500 ${confidence >= 0.8 ? 'bg-green-500' :
+        confidence >= 0.5 ? 'bg-yellow-500' :
+            'bg-orange-500'
+        }`;
 
-    document.getElementById('modal-rationale').textContent = trade.rationale || 'No rationale available.';
+    // Outcome badge
+    const outcomeBadge = document.getElementById('modal-outcome-badge');
+    if (followerData.is_same_outcome) {
+        outcomeBadge.textContent = 'Same Outcome';
+        outcomeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600';
+    } else {
+        outcomeBadge.textContent = 'Opposite Outcome';
+        outcomeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-600';
+    }
+
+    // Type badge
+    const typeBadge = document.getElementById('modal-type-badge');
+    if (followerData.relationship_type === 'indirect') {
+        typeBadge.textContent = 'Indirect';
+        typeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-600';
+    } else {
+        typeBadge.textContent = 'Direct';
+        typeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-600';
+    }
+
+    // Rationale
+    document.getElementById('modal-rationale').textContent = followerData.rationale || 'No rationale available.';
+
+    // P&L section (only for backtest results)
+    const pnlSection = document.getElementById('modal-pnl-section');
+    const trade = followerData._trade;
+    if (trade && trade.status === 'ok') {
+        pnlSection.classList.remove('hidden');
+        for (const tf of ['5m', '1h', '1d', '1w']) {
+            const el = document.getElementById(`modal-pnl-${tf}`);
+            const { text, cls } = formatPnl(trade.pnl?.[tf]);
+            el.textContent = text;
+            el.className = `text-sm font-bold ${cls}`;
+        }
+    } else {
+        pnlSection.classList.add('hidden');
+    }
+
+    // Market details
+    document.getElementById('modal-leader-name').textContent = leader.name;
+    document.getElementById('modal-leader-meta').textContent =
+        `${leader.category || 'Other'} \u2022 $${((leader.volume || 0) / 1000000).toFixed(1)}M`;
+
+    document.getElementById('modal-follower-name').textContent = market.name;
+    document.getElementById('modal-follower-meta').textContent =
+        `${market.category || 'Other'} \u2022 $${((market.volume || 0) / 1000000).toFixed(1)}M`;
 
     modal.classList.remove('hidden');
     requestAnimationFrame(() => {
@@ -563,8 +988,17 @@ function openTradeModal(trade) {
     });
 }
 
+function openTradeModal(trade) {
+    if (!discoverResults) return;
+    // Find the follower data for this trade
+    const follower = discoverResults.followers.find(f => (f.market || f).id === trade.id);
+    if (follower) {
+        openRelationshipModal(follower, discoverResults.leader);
+    }
+}
+
 function closeModal() {
-    const modal = document.getElementById('rationale-modal');
+    const modal = document.getElementById('relationship-modal');
     const content = modal.querySelector('.modal-content');
     content.classList.add('scale-95', 'opacity-0');
     content.classList.remove('scale-100', 'opacity-100');
@@ -572,27 +1006,119 @@ function closeModal() {
 }
 
 
-// ─── Session Restore ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// Session Restore
+// ═══════════════════════════════════════════════════════════
 
 function restoreFromSession() {
-    const saved = sessionStorage.getItem('backtestResults');
+    const saved = sessionStorage.getItem('backtestFullResults');
     if (!saved) return;
 
     try {
-        backtestResults = JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        backtestResults = parsed.backtestResults;
+        discoverResults = parsed.discoverResults;
     } catch {
-        sessionStorage.removeItem('backtestResults');
+        sessionStorage.removeItem('backtestFullResults');
         return;
     }
 
-    if (!backtestResults?.trades?.length) return;
+    if (!discoverResults?.followers?.length) return;
 
-    showResults(backtestResults);
+    showGraph();
+
+    if (backtestResults) {
+        showResultsPanel();
+        recomputeAndRender();
+    }
+
     console.log('Backtest: Restored previous results from session');
 }
 
 
-// ─── Utilities ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// Backtest History (localStorage)
+// ═══════════════════════════════════════════════════════════
+
+const HISTORY_KEY = 'backtestHistory';
+const MAX_HISTORY = 20;
+
+function saveToHistory(btResults, discResults) {
+    if (!btResults?.leader) return;
+    const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    const entry = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        leaderName: btResults.leader.question,
+        leaderId: btResults.leader.id,
+        resolutionDate: btResults.leader.resolution_time_formatted || '',
+        tradeCount: btResults.trades.filter(t => t.status === 'ok').length,
+        avgPnl1d: btResults.summary?.avg_pnl_1d ?? null,
+        backtestResults: btResults,
+        discoverResults: discResults,
+    };
+    // De-dupe by leader ID (keep latest)
+    const filtered = history.filter(h => h.leaderId !== entry.leaderId);
+    filtered.unshift(entry);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered.slice(0, MAX_HISTORY)));
+}
+
+function renderHistory() {
+    const section = document.getElementById('history-section');
+    const list = document.getElementById('history-list');
+    const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+
+    if (history.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+    list.innerHTML = '';
+
+    history.forEach(entry => {
+        const pnl = entry.avgPnl1d;
+        const pnlText = pnl != null ? `${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%` : 'N/A';
+        const pnlColor = pnl == null ? 'text-slate-400' : pnl >= 0 ? 'text-green-600' : 'text-red-500';
+        const dateLabel = new Date(entry.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+        const card = document.createElement('div');
+        card.className = 'bg-white border border-slate-200 rounded-xl px-4 py-3 cursor-pointer hover:border-blue-300 hover:shadow-sm transition-all';
+        card.innerHTML = `
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium text-slate-800 leading-tight truncate">${escapeHtml(entry.leaderName)}</p>
+                    <p class="text-[10px] text-slate-400 mt-1">${dateLabel} \u2022 ${entry.tradeCount} trades \u2022 ${entry.resolutionDate}</p>
+                </div>
+                <span class="text-sm font-bold font-mono ${pnlColor} flex-shrink-0">${pnlText}</span>
+            </div>`;
+
+        card.addEventListener('click', () => loadFromHistory(entry));
+        list.appendChild(card);
+    });
+}
+
+function loadFromHistory(entry) {
+    backtestResults = entry.backtestResults;
+    discoverResults = entry.discoverResults;
+
+    sessionStorage.setItem('backtestFullResults', JSON.stringify({
+        backtestResults,
+        discoverResults,
+        searchMode: 'historical',
+    }));
+
+    showGraph();
+    showResultsPanel();
+    recomputeAndRender();
+
+    console.log('Backtest: Loaded from history:', entry.leaderName);
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Utilities
+// ═══════════════════════════════════════════════════════════
 
 function escapeHtml(str) {
     const div = document.createElement('div');

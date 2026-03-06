@@ -1,0 +1,58 @@
+{
+  "presidential": [
+    {
+      "question": "Counter-Strike: Acend vs Bebop (BO3) - CCT Europe Series #14 Play-In Group B",
+      "slug": "cs2-ace1-bbp-2026-01-23",
+      "volume": 9999.995006,
+      "closedTime": "2026-01-23 20:56:36",
+      "endDate": "2026-01-23T18:30:00",
+      "umaEndDate": "2026-01-23T20:56:36",
+      "clob_count": 2,
+      "prices": "[\"1\", \"0\"]"
+    },
+    {
+      "question": "Will the price of Bitcoin be above $110,000 on September 26 at 4AM ET?",
+      "slug": "btc-multistrike-4h-1758873600-110k",
+      "volume": 99.9998,
+      "closedTime": "2025-09-26 10:09:27",
+      "endDate": "2025-09-26T08:00:00",
+      "umaEndDate": "2025-09-26T10:09:27",
+      "clob_count": 2,
+      "prices": "[\"0\", \"1\"]"
+    },
+    {
+      "question": "Martin vs. Jianu: Match O/U 21.5",
+      "slug": "atp-mar-jianu-2026-03-02-match-total-21pt5",
+      "volume": 99.9997,
+      "closedTime": "2026-03-02 14:34:39",
+      "endDate": "2026-03-09T09:00:00",
+      "umaEndDate": "2026-03-02T14:34:39",
+      "clob_count": 2,
+      "prices": "[\"0\", \"1\"]"
+    },
+    {
+      "question": "Total Kills Over/Under 30.5 in Game 1?",
+      "slug": "lol-ly-tl2-2026-02-27-game1-kill-over-30pt5",
+      "volume": 999.99,
+      "closedTime": "2026-02-28 00:44:43",
+      "endDate": "2026-02-28T03:00:00",
+      "umaEndDate": "2026-02-28T00:44:43",
+      "clob_count": 2,
+      "prices": "[\"0\", \"1\"]"
+    },
+    {
+      "question": "Series: Most kills?",
+      "slug": "dota2-4p-pr1-2026-01-10-most-kill",
+      "volume": 999.99,
+      "closedTime": "2026-01-10 14:19:16",
+      "endDate": "2026-01-10T16:00:00",
+      "umaEndDate": "2026-01-10T14:19:16",
+      "clob_count": 2,
+      "prices": "[\"0\", \"1\"]"
+    }
+  ],
+  "trump win": "URL can't contain control characters. '/markets?closed=true&limit=5&order=volume&ascending=false&_q=trump win' (found at least ' ')",
+  "fed interest": "URL can't contain control characters. '/markets?closed=true&limit=5&order=volume&ascending=false&_q=fed interest' (found at least ' ')",
+  "bitcoin etf": "URL can't contain control characters. '/markets?closed=true&limit=5&order=volume&ascending=false&_q=bitcoin etf' (found at least ' ')",
+  "tariff china": "URL can't contain control characters. '/markets?closed=true&limit=5&order=volume&ascending=false&_q=tariff china' (found at least ' ')"
+}

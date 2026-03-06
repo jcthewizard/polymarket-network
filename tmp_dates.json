@@ -1,0 +1,215 @@
+{
+  "total_dates_with_markets": 416,
+  "top_30_dates_by_volume": [
+    {
+      "date": "2026-01-01",
+      "count": 23,
+      "total_volume": 15890215,
+      "top_market": "Will Ethereum hit $6,000 by December 31?",
+      "top_vol": 9995564
+    },
+    {
+      "date": "2025-04-30",
+      "count": 5,
+      "total_volume": 13073069,
+      "top_market": "Will the Milwaukee Bucks win the 2025 NBA Finals?",
+      "top_vol": 9997937
+    },
+    {
+      "date": "2025-11-13",
+      "count": 11,
+      "total_volume": 12075225,
+      "top_market": "Will the Government shutdown end November 16 or later?",
+      "top_vol": 9839429
+    },
+    {
+      "date": "2024-11-06",
+      "count": 3,
+      "total_volume": 11819848,
+      "top_market": "Will Bernie Sanders win the 2024 US Presidential Election?",
+      "top_vol": 9829356
+    },
+    {
+      "date": "2025-12-03",
+      "count": 10,
+      "total_volume": 11589257,
+      "top_market": "Will Ye be the top Spotify artist for 2025?",
+      "top_vol": 9887490
+    },
+    {
+      "date": "2025-04-10",
+      "count": 4,
+      "total_volume": 11091682,
+      "top_market": " Will the Phoenix Suns win the 2025 NBA Finals?",
+      "top_vol": 9988733
+    },
+    {
+      "date": "2026-01-29",
+      "count": 17,
+      "total_volume": 11083122,
+      "top_market": "Will Paris Saint-Germain FC win on 2026-01-28?",
+      "top_vol": 9860208
+    },
+    {
+      "date": "2024-11-23",
+      "count": 4,
+      "total_volume": 10937678,
+      "top_market": "Will Bitcoin hit $100k today?",
+      "top_vol": 9846391
+    },
+    {
+      "date": "2026-01-22",
+      "count": 14,
+      "total_volume": 10336705,
+      "top_market": "Will Liverpool FC win on 2026-01-21?",
+      "top_vol": 9940936
+    },
+    {
+      "date": "2026-01-11",
+      "count": 12,
+      "total_volume": 10101700,
+      "top_market": "Will the Tampa Bay Buccaneers win Super Bowl 2026?",
+      "top_vol": 9903532
+    },
+    {
+      "date": "2025-05-01",
+      "count": 3,
+      "total_volume": 10050037,
+      "top_market": "Will Marcel Ciolacu win the 2024 Romanian Presidential election?",
+      "top_vol": 9941724
+    },
+    {
+      "date": "2024-12-17",
+      "count": 2,
+      "total_volume": 9968915,
+      "top_market": "Will \u22652% of votes go to 3rd Party candidates?",
+      "top_vol": 9870739
+    },
+    {
+      "date": "2025-05-19",
+      "count": 3,
+      "total_volume": 9903707,
+      "top_market": "Will Victor Ponta win the Romanian presidential election?",
+      "top_vol": 9883931
+    },
+    {
+      "date": "2024-12-08",
+      "count": 1,
+      "total_volume": 9828619,
+      "top_market": "Will Oklahoma State win the 2025 College Football Playoff?",
+      "top_vol": 9828619
+    },
+    {
+      "date": "2025-03-19",
+      "count": 1,
+      "total_volume": 9824902,
+      "top_market": "U.S. Government funding lapse on March 15?",
+      "top_vol": 9824902
+    },
+    {
+      "date": "2026-02-28",
+      "count": 38,
+      "total_volume": 4389305,
+      "top_market": "Jets vs. Ducks",
+      "top_vol": 996141
+    },
+    {
+      "date": "2025-12-01",
+      "count": 11,
+      "total_volume": 4302814,
+      "top_market": "Will Elon Musk post 180-199 tweets from November 25 to December 2, 2025?",
+      "top_vol": 996655
+    },
+    {
+      "date": "2026-02-20",
+      "count": 31,
+      "total_volume": 3705560,
+      "top_market": "Will Elon Musk post 90-114 tweets from February 14 to February 16, 2026?",
+      "top_vol": 999971
+    },
+    {
+      "date": "2026-03-01",
+      "count": 35,
+      "total_volume": 3468114,
+      "top_market": "Golden Knights vs. Penguins",
+      "top_vol": 999402
+    },
+    {
+      "date": "2026-02-13",
+      "count": 25,
+      "total_volume": 3464084,
+      "top_market": "Will the price of Bitcoin be above $72,000 on February 13?",
+      "top_vol": 999990
+    },
+    {
+      "date": "2026-02-21",
+      "count": 31,
+      "total_volume": 3257754,
+      "top_market": "Will Real Sociedad de F\u00fatbol win on 2026-02-21?",
+      "top_vol": 994602
+    },
+    {
+      "date": "2025-04-04",
+      "count": 3,
+      "total_volume": 2974652,
+      "top_market": "Will the Tampa Bay Lightning win the 2025 President\u2019s Trophy?",
+      "top_vol": 997980
+    },
+    {
+      "date": "2026-02-27",
+      "count": 24,
+      "total_volume": 2718182,
+      "top_market": "Dubai Tennis Championships: Andrey Rublev vs Tallon Griekspoor",
+      "top_vol": 983347
+    },
+    {
+      "date": "2026-02-15",
+      "count": 19,
+      "total_volume": 2667461,
+      "top_market": "Will the government shutdown last 1 day or more?",
+      "top_vol": 983794
+    },
+    {
+      "date": "2026-02-07",
+      "count": 21,
+      "total_volume": 2615171,
+      "top_market": "Will the US next strike Iran on February 4, 2026 (ET)?",
+      "top_vol": 999005
+    },
+    {
+      "date": "2026-02-03",
+      "count": 14,
+      "total_volume": 2450975,
+      "top_market": "Sharks vs. Blackhawks",
+      "top_vol": 989073
+    },
+    {
+      "date": "2026-02-23",
+      "count": 29,
+      "total_volume": 2431680,
+      "top_market": "Will the next Dutch government be VVD + CDA + JA21 + D66?",
+      "top_vol": 993780
+    },
+    {
+      "date": "2025-11-23",
+      "count": 13,
+      "total_volume": 2428290,
+      "top_market": "Pistons vs. Bucks",
+      "top_vol": 982602
+    },
+    {
+      "date": "2026-02-19",
+      "count": 27,
+      "total_volume": 2406795,
+      "top_market": "Will Kevin Warsh be formally nominated to be Chair of the Federal Reserve by Feb",
+      "top_vol": 993340
+    },
+    {
+      "date": "2026-02-08",
+      "count": 16,
+      "total_volume": 2390015,
+      "top_market": "Rockets vs. Thunder: O/U 213.5",
+      "top_vol": 993868
+    }
+  ]
+}

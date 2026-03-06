@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polymarket Autotrader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .live-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+    </style>
+</head>
+
+<body class="bg-slate-50 font-[Inter] min-h-screen">
+
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 z-40 px-4 md:px-6 pt-4 md:pt-6 pointer-events-none">
+        <div class="flex justify-between items-start pointer-events-auto">
+            <div>
+                <div class="flex items-center gap-3">
+                    <a href="index.html"
+                        class="text-slate-400 hover:text-slate-600 transition-colors text-sm flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 19l-7-7 7-7" />
+                        </svg>
+                        Network
+                    </a>
+                    <span class="text-slate-300">|</span>
+                    <a href="discover.html"
+                        class="text-slate-400 hover:text-slate-600 transition-colors text-sm">
+                        Discover
+                    </a>
+                    <span class="text-slate-300">|</span>
+                    <a href="backtest.html"
+                        class="text-slate-400 hover:text-slate-600 transition-colors text-sm">
+                        Backtest
+                    </a>
+                </div>
+                <h1 class="text-xl md:text-3xl font-bold text-slate-900 tracking-tight mt-1">Autotrader</h1>
+                <p class="text-slate-500 text-xs md:text-sm mt-1">Live Trading Dashboard</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main content -->
+    <main class="pt-28 px-4 md:px-6 pb-8 max-w-7xl mx-auto">
+
+        <!-- Status bar -->
+        <div id="status-bar"
+            class="flex flex-wrap items-center gap-4 p-4 rounded-xl border shadow-sm mb-6 bg-white">
+            <!-- Mode badge -->
+            <div id="mode-badge" class="px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase">
+                ...
+            </div>
+            <!-- Start/Stop button -->
+            <button id="toggle-btn" onclick="toggleTrader()"
+                class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm">
+                Start
+            </button>
+            <!-- Test Resolution button -->
+            <button id="test-btn" onclick="openTestModal()"
+                class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100">
+                Test Resolution
+            </button>
+            <!-- Stats -->
+            <div class="flex items-center gap-6 ml-auto text-sm">
+                <div class="text-slate-500">
+                    Open: <span id="stat-open" class="font-semibold text-slate-800">0</span>
+                </div>
+                <div class="text-slate-500">
+                    P&amp;L: <span id="stat-pnl" class="font-semibold">$0.00</span>
+                </div>
+                <div class="text-slate-500">
+                    Bet: <span id="stat-bet" class="font-semibold text-slate-800">$1.00</span>
+                </div>
+                <div id="stream-indicator" class="hidden">
+                    <span class="live-dot inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                    <span class="text-xs text-slate-400 ml-1">LIVE</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex gap-1 mb-4 border-b border-slate-200">
+            <button onclick="showTab('positions')"
+                class="tab-btn px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors"
+                data-tab="positions">
+                Positions
+            </button>
+            <button onclick="showTab('signals')"
+                class="tab-btn px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors"
+                data-tab="signals">
+                Signals
+            </button>
+            <button onclick="showTab('relationships')"
+                class="tab-btn px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors"
+                data-tab="relationships">
+                Relationships
+            </button>
+            <button onclick="showTab('log')"
+                class="tab-btn px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors"
+                data-tab="log">
+                Event Log
+            </button>
+        </div>
+
+        <!-- Positions tab -->
+        <div id="tab-positions" class="tab-content">
+            <div class="bg-white rounded-xl border shadow-sm max-h-[70vh] overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                        <tr>
+                            <th class="px-4 py-3 text-left">Market</th>
+                            <th class="px-4 py-3 text-left">Outcome</th>
+                            <th class="px-4 py-3 text-right">Entry</th>
+                            <th class="px-4 py-3 text-right">Exit</th>
+                            <th class="px-4 py-3 text-right">P&amp;L</th>
+                            <th class="px-4 py-3 text-right">Amount</th>
+                            <th class="px-4 py-3 text-center">Status</th>
+                            <th class="px-4 py-3 text-right">Opened</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-body" class="divide-y divide-slate-100">
+                        <tr>
+                            <td colspan="8" class="px-4 py-8 text-center text-slate-400">No positions yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Signals tab -->
+        <div id="tab-signals" class="tab-content hidden">
+            <div class="bg-white rounded-xl border shadow-sm max-h-[70vh] overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                        <tr>
+                            <th class="px-4 py-3 text-left">Time</th>
+                            <th class="px-4 py-3 text-left">Trigger</th>
+                            <th class="px-4 py-3 text-left">Action</th>
+                            <th class="px-4 py-3 text-left">Outcome</th>
+                            <th class="px-4 py-3 text-right">Confidence</th>
+                            <th class="px-4 py-3 text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-body" class="divide-y divide-slate-100">
+                        <tr>
+                            <td colspan="6" class="px-4 py-8 text-center text-slate-400">No signals yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Relationships tab -->
+        <div id="tab-relationships" class="tab-content hidden">
+            <div id="relationships-list" class="space-y-3 max-h-[70vh] overflow-y-auto">
+                <p class="text-slate-400 text-sm text-center py-8">No active relationships</p>
+            </div>
+        </div>
+
+        <!-- Event log tab -->
+        <div id="tab-log" class="tab-content hidden">
+            <div class="bg-white rounded-xl border shadow-sm p-4 max-h-[60vh] overflow-y-auto">
+                <div id="event-log" class="space-y-1 font-mono text-xs">
+                    <p class="text-slate-400">Waiting for events...</p>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Test Resolution Modal -->
+    <div id="test-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl w-[520px] max-w-[90vw] p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-slate-900">Test Resolution</h2>
+                <button onclick="closeTestModal()" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+            </div>
+            <p class="text-sm text-slate-500 mb-4">Simulate a leader market resolving. This will generate signals and place dry-run trades for all followers.</p>
+            <div id="test-leaders-list" class="space-y-2 max-h-[40vh] overflow-y-auto mb-4">
+                <p class="text-slate-400 text-sm text-center py-4">Loading leaders...</p>
+            </div>
+            <div id="test-result" class="hidden mt-4 p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm"></div>
+        </div>
+    </div>
+
+    <script src="js/trading-main.js"></script>
+</body>
+
+</html>

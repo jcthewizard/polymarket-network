@@ -10,13 +10,17 @@ import urllib.error
 import json
 import os
 import sys
+import errno
 import threading
 from datetime import datetime
 
+import config
 import database as db
+from llm_utils import call_openai_chat_text
+import autotrader
 from urllib.parse import urlparse, parse_qs
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", "8000"))
 
 # ── Resolved markets cache (for backtest search) ──────────────
 _resolved_markets_cache = None
@@ -24,15 +28,38 @@ _resolved_markets_cache_time = 0
 RESOLVED_CACHE_TTL = 600  # 10 minutes
 
 
+def _pick_resolution_time(market: dict):
+    """Return (timestamp_str, source) for best-available resolution time."""
+    closed_time = market.get('closedTime', '') or ''
+    if closed_time:
+        return closed_time, 'closedTime'
+
+    uma_end_date = market.get('umaEndDate', '') or ''
+    if uma_end_date:
+        return uma_end_date, 'umaEndDate'
+
+    end_date = market.get('endDate', '') or ''
+    if end_date:
+        return end_date, 'endDate'
+
+    return '', ''
+
+
 def _fetch_resolved_markets():
-    """Fetch resolved markets from Gamma API with pagination."""
+    """Fetch resolved markets from Gamma API with pagination.
+    Includes ALL resolved markets (both Yes and No outcomes) with valid dates.
+    """
     all_markets = []
     offset = 0
     limit = 500
-    max_markets = 2000  # Cap to avoid excessive fetching
+    max_markets = 10000  # Match BACKTEST_CLOSED_FETCH_MAX for consistent coverage
 
     while len(all_markets) < max_markets:
-        url = f"https://gamma-api.polymarket.com/markets?closed=true&limit={limit}&offset={offset}"
+        url = (
+            f"https://gamma-api.polymarket.com/markets?closed=true"
+            f"&limit={limit}&offset={offset}"
+            f"&order=volume&ascending=false"
+        )
         try:
             req = urllib.request.Request(
                 url,
@@ -52,38 +79,64 @@ def _fetch_resolved_markets():
             print(f"Error fetching resolved markets at offset {offset}: {e}")
             break
 
-    # Filter to markets that resolved to Yes
-    # Only include markets from 2023+ (CLOB launched late 2022, older markets have no price history)
-    resolved_yes = []
+    # Filter to resolved markets with valid dates and CLOB token IDs
+    resolved = []
     for m in all_markets:
         try:
             prices = json.loads(m.get('outcomePrices', '[]'))
             clob_ids = json.loads(m.get('clobTokenIds', '[]'))
             volume = float(m.get('volume', 0) or 0)
             end_date = m.get('endDate', '') or ''
+            start_date = m.get('startDate', '') or ''
+            resolution_time, resolution_source = _pick_resolution_time(m)
 
-            # Skip old markets without CLOB data
-            if end_date and end_date < '2023-01-01':
+            # Must have valid dates and CLOB IDs
+            if not resolution_time or not start_date or not clob_ids:
                 continue
 
-            # Resolved to Yes: first outcome price ~1.0
-            if prices and float(prices[0]) > 0.95 and clob_ids and volume >= 10000:
-                resolved_yes.append({
-                    'id': m['id'],
-                    'question': m.get('question', ''),
-                    'slug': m.get('slug', ''),
-                    'volume': volume,
-                    'clobTokenIds': clob_ids,
-                    'endDate': end_date,
-                })
+            # Skip very old markets (pre-CLOB, no price history)
+            if resolution_time < '2023-01-01':
+                continue
+
+            # Minimum volume filter
+            if volume < 1000:
+                continue
+
+            # Determine which outcome resolved (Yes or No)
+            resolved_outcome = None
+            if prices and len(prices) >= 2:
+                p0 = float(prices[0])
+                p1 = float(prices[1])
+                if p0 > 0.95:
+                    resolved_outcome = "Yes"
+                elif p1 > 0.95:
+                    resolved_outcome = "No"
+
+            if resolved_outcome is None:
+                continue
+
+            resolved.append({
+                'id': m['id'],
+                'question': m.get('question', ''),
+                'slug': m.get('slug', ''),
+                'volume': volume,
+                'clobTokenIds': clob_ids,
+                'startDate': start_date,
+                'endDate': end_date,
+                'closedTime': m.get('closedTime', '') or '',
+                'umaEndDate': m.get('umaEndDate', '') or '',
+                'resolutionTime': resolution_time,
+                'resolutionSource': resolution_source,
+                'resolved_outcome': resolved_outcome,
+            })
         except (ValueError, TypeError, json.JSONDecodeError):
             continue
 
-    # Sort by endDate descending (most recent first)
-    resolved_yes.sort(key=lambda x: x.get('endDate', ''), reverse=True)
+    # Sort by volume descending (most liquid first)
+    resolved.sort(key=lambda x: x.get('volume', 0), reverse=True)
 
-    print(f"[Backtest] Cached {len(resolved_yes)} resolved-to-Yes markets (from {len(all_markets)} closed)")
-    return resolved_yes
+    print(f"[Backtest] Cached {len(resolved)} resolved markets (from {len(all_markets)} closed)")
+    return resolved
 
 
 def _get_resolved_markets_cache():
@@ -127,6 +180,17 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_get_status()
         elif self.path.startswith('/api/backtest/search'):
             self.handle_backtest_search()
+        # Trading endpoints
+        elif self.path == '/api/trading/status':
+            self.handle_trading_status()
+        elif self.path == '/api/trading/positions':
+            self.handle_trading_positions()
+        elif self.path == '/api/trading/signals':
+            self.handle_trading_signals()
+        elif self.path == '/api/trading/relationships':
+            self.handle_trading_relationships()
+        elif self.path == '/api/trading/stream':
+            self.handle_trading_stream()
         # Legacy proxy endpoints (keep for backward compatibility during transition)
         elif self.path.startswith('/api/gamma/'):
             target_path = self.path[len('/api/gamma/'):]
@@ -208,13 +272,19 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             last_refresh = db.get_metadata('last_refresh')
             total_markets = db.get_metadata('total_markets')
             total_correlations = db.get_metadata('total_correlations')
+            refresh_state = db.get_metadata('refresh_state')
+            refresh_started_at = db.get_metadata('refresh_started_at')
+            refresh_error = db.get_metadata('refresh_error')
             
             response = {
                 'last_refresh': last_refresh,
                 'total_markets': int(total_markets) if total_markets else 0,
                 'total_correlations': int(total_correlations) if total_correlations else 0,
                 'db_path': db.DB_PATH,
-                'status': 'ready' if last_refresh else 'needs_refresh'
+                'status': 'ready' if last_refresh else 'needs_refresh',
+                'refresh_state': refresh_state or ('ready' if last_refresh else 'idle'),
+                'refresh_started_at': refresh_started_at,
+                'refresh_error': refresh_error,
             }
             
             self.send_json_response(response)
@@ -245,6 +315,14 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_discover()
         elif self.path == '/api/backtest':
             self.handle_backtest()
+        elif self.path == '/api/discover/full':
+            self.handle_discover_full()
+        elif self.path == '/api/trading/start':
+            self.handle_trading_start()
+        elif self.path == '/api/trading/stop':
+            self.handle_trading_stop()
+        elif self.path == '/api/trading/test-resolution':
+            self.handle_test_resolution()
         else:
             self.send_error(404, "Not found")
 
@@ -256,6 +334,12 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             data = json.loads(post_data.decode('utf-8'))
             
             question = data.get('question', '')
+            if not question:
+                self.send_error_response(400, 'question is required')
+                return
+            if not OPENAI_API_KEY:
+                self.send_error_response(500, 'OPENAI_API_KEY not configured')
+                return
             
             # Call OpenAI API
             prompt = f"""Classify this prediction market question into exactly one of these categories:
@@ -265,35 +349,27 @@ Market question: "{question}"
 
 Respond with ONLY the category name, nothing else."""
 
-            openai_payload = {
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 20,
-                "temperature": 0
-            }
-            
-            req = urllib.request.Request(
-                "https://api.openai.com/v1/chat/completions",
-                data=json.dumps(openai_payload).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {OPENAI_API_KEY}'
-                }
+            category = call_openai_chat_text(
+                messages=[{"role": "user", "content": prompt}],
+                model="gpt-4o-mini",
+                openai_api_key=OPENAI_API_KEY,
+                timeout=45,
+                payload_overrides={
+                    "max_tokens": 20,
+                    "temperature": 0,
+                },
+                max_retries=6,
             )
-            
-            with urllib.request.urlopen(req) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                category = result['choices'][0]['message']['content'].strip()
-                
-                # Validate category is in our list
-                if category not in CATEGORIES:
-                    category = "Other"
-                
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps({"category": category}).encode('utf-8'))
+
+            # Validate category is in our list
+            if category not in CATEGORIES:
+                category = "Other"
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"category": category}).encode('utf-8'))
                 
         except Exception as e:
             print(f"Classification error: {e}")
@@ -391,25 +467,239 @@ Respond with ONLY the category name, nothing else."""
             except Exception:
                 pass
 
+    def handle_discover_full(self):
+        """Stream full relationship graph generation as NDJSON events."""
+        import queue as _queue
+
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            top_n = int(data.get('top_n', 20))
+            min_volume = int(data.get('min_volume', 50000))
+            skip_existing = bool(data.get('skip_existing', True))
+
+            if not OPENAI_API_KEY:
+                self.send_error_response(500, 'OPENAI_API_KEY not configured')
+                return
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/x-ndjson')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+
+            eq = _queue.Queue()
+            _SENTINEL = object()
+
+            def _run_worker():
+                try:
+                    import discover_worker
+                    import importlib
+                    importlib.reload(discover_worker)
+                    for event in discover_worker.generate_full_graph_stream(
+                        OPENAI_API_KEY, top_n, min_volume, skip_existing
+                    ):
+                        eq.put(event)
+                except Exception as exc:
+                    eq.put({"type": "error", "message": str(exc)})
+                finally:
+                    eq.put(_SENTINEL)
+
+            worker_thread = threading.Thread(target=_run_worker, daemon=True)
+            worker_thread.start()
+
+            KEEPALIVE_INTERVAL = 15
+
+            while True:
+                try:
+                    event = eq.get(timeout=KEEPALIVE_INTERVAL)
+                except _queue.Empty:
+                    keepalive = json.dumps({"type": "keepalive"}) + '\n'
+                    self.wfile.write(keepalive.encode('utf-8'))
+                    self.wfile.flush()
+                    continue
+
+                if event is _SENTINEL:
+                    break
+
+                line = json.dumps(event) + '\n'
+                self.wfile.write(line.encode('utf-8'))
+                self.wfile.flush()
+
+        except Exception as e:
+            print(f"Discover full error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                error_event = json.dumps({"type": "error", "message": str(e)}) + '\n'
+                self.wfile.write(error_event.encode('utf-8'))
+                self.wfile.flush()
+            except Exception:
+                pass
+
+    # ── Trading endpoints ─────────────────────────────────────
+
+    def handle_trading_status(self):
+        """GET /api/trading/status — current autotrader state."""
+        try:
+            self.send_json_response(autotrader.status())
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_positions(self):
+        """GET /api/trading/positions — recent positions."""
+        try:
+            positions = db.get_recent_positions(limit=100)
+            self.send_json_response(positions)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_signals(self):
+        """GET /api/trading/signals — recent trade signals."""
+        try:
+            signals = db.get_recent_signals(limit=50)
+            self.send_json_response(signals)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_relationships(self):
+        """GET /api/trading/relationships — active leader-follower pairs."""
+        try:
+            rels = db.get_active_relationships()
+            self.send_json_response(rels)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_start(self):
+        """POST /api/trading/start — start autotrader."""
+        try:
+            result = autotrader.start()
+            self.send_json_response(result)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_stop(self):
+        """POST /api/trading/stop — stop autotrader."""
+        try:
+            result = autotrader.stop()
+            self.send_json_response(result)
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_test_resolution(self):
+        """POST /api/trading/test-resolution — simulate a leader resolution.
+        Body: { "leader_market_id": "...", "outcome": "YES"|"NO" }
+        If no leader_market_id, returns list of available leaders to pick from."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length:
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+            else:
+                data = {}
+
+            leader_id = data.get('leader_market_id')
+
+            if not leader_id:
+                # Return available leaders
+                rels = db.get_active_relationships()
+                leaders = {}
+                for r in rels:
+                    lid = r["leader_market_id"]
+                    if lid not in leaders:
+                        leaders[lid] = {
+                            "market_id": lid,
+                            "question": r.get("leader_question", ""),
+                            "follower_count": 0,
+                        }
+                    leaders[lid]["follower_count"] += 1
+                self.send_json_response(list(leaders.values()))
+                return
+
+            outcome = data.get('outcome', 'YES').upper()
+            if outcome not in ('YES', 'NO'):
+                self.send_error_response(400, 'outcome must be YES or NO')
+                return
+
+            result = autotrader.simulate_resolution(leader_id, outcome)
+            self.send_json_response(result)
+
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
+    def handle_trading_stream(self):
+        """GET /api/trading/stream — SSE live updates from autotrader.
+        Drains autotrader.event_queue with keepalive pings every 15s.
+        Closes after 60s idle (no real events) to prevent thread exhaustion."""
+        import queue as _queue
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/x-ndjson')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.end_headers()
+
+        KEEPALIVE = 15  # seconds
+        MAX_IDLE = 60   # close after 60s with no real events
+        idle_seconds = 0
+
+        try:
+            while True:
+                try:
+                    evt = autotrader.event_queue.get(timeout=KEEPALIVE)
+                    idle_seconds = 0
+                    line = json.dumps(evt) + '\n'
+                    self.wfile.write(line.encode('utf-8'))
+                    self.wfile.flush()
+                except _queue.Empty:
+                    idle_seconds += KEEPALIVE
+                    if idle_seconds >= MAX_IDLE:
+                        break
+                    keepalive = json.dumps({"type": "keepalive"}) + '\n'
+                    self.wfile.write(keepalive.encode('utf-8'))
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def handle_backtest_search(self):
-        """Search for resolved markets from Gamma API (cached)."""
+        """Search for resolved markets from Gamma API (cached).
+        Supports:
+          ?date=YYYY-MM-DD — markets resolved on that date
+          ?name=text       — market-question name search
+          ?q=text          — legacy alias for name search
+        Filters can be combined (e.g., date + name).
+        """
         try:
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
-            query = params.get('q', [''])[0].lower().strip()
-
-            if len(query) < 2:
-                self.send_json_response([])
-                return
+            name_query = params.get('name', [''])[0].lower().strip()
+            legacy_query = params.get('q', [''])[0].lower().strip()
+            query = name_query or legacy_query
+            date_str = params.get('date', [''])[0].strip()
 
             resolved_markets = _get_resolved_markets_cache()
 
-            results = [
-                m for m in resolved_markets
-                if query in m['question'].lower()
-            ][:20]
+            if not date_str and len(query) < 2:
+                self.send_json_response([])
+                return
 
-            self.send_json_response(results)
+            results = resolved_markets
+            if date_str:
+                results = [
+                    m for m in results
+                    if (m.get('resolutionTime') or '')[:10] == date_str
+                ]
+
+            if len(query) >= 2:
+                results = [
+                    m for m in results
+                    if query in (m.get('question') or '').lower()
+                ]
+
+            results.sort(key=lambda x: x.get('volume', 0), reverse=True)
+            self.send_json_response(results[:50])
 
         except Exception as e:
             print(f"Backtest search error: {e}")
@@ -427,8 +717,7 @@ Respond with ONLY the category name, nothing else."""
             market_id = data.get('market_id', '')
             market_question = data.get('market_question', '')
             clob_token_id = data.get('clob_token_id', '')
-            holding_period = data.get('holding_period', '1d')
-            threshold = float(data.get('threshold', 0.95))
+            resolution_time = data.get('resolution_time', '') or data.get('end_date', '')
 
             if not market_id or not clob_token_id:
                 self.send_error_response(400, 'market_id and clob_token_id are required')
@@ -455,7 +744,7 @@ Respond with ONLY the category name, nothing else."""
                     importlib.reload(backtest_worker)
                     for event in backtest_worker.run_backtest_stream(
                         market_id, market_question, clob_token_id,
-                        holding_period, threshold, OPENAI_API_KEY,
+                        resolution_time, OPENAI_API_KEY,
                     ):
                         eq.put(event)
                 except Exception as exc:
@@ -545,8 +834,12 @@ _refresh_in_progress = False
 
 def check_and_refresh():
     """Check if data is stale and trigger a background refresh if needed.
-    Called on user requests — no refresh happens if nobody visits the site."""
+    Called on user requests — no refresh happens if nobody visits the site.
+    Set AUTO_REFRESH=1 env var to enable (disabled by default)."""
     global _refresh_in_progress
+
+    if not os.environ.get("AUTO_REFRESH"):
+        return
 
     if _refresh_in_progress:
         return
@@ -582,13 +875,37 @@ def check_and_refresh():
     threading.Thread(target=do_refresh, daemon=True).start()
 
 
+def maybe_start_autotrader_on_boot():
+    """Start the autotrader during server boot when explicitly enabled."""
+    if not config.TRADING_ENABLED:
+        print("[Autotrader] Boot auto-start disabled (TRADING_ENABLED=false).")
+        return {"status": "disabled"}
+
+    try:
+        result = autotrader.start()
+        print(f"[Autotrader] Boot auto-start result: {result}")
+        return result
+    except Exception as exc:
+        print(f"[Autotrader] Boot auto-start failed: {exc}")
+        return {"status": "error", "error": str(exc)}
+
+
 if __name__ == '__main__':
     # Initialize database
     db.init_db()
+    maybe_start_autotrader_on_boot()
 
-    # Start HTTP server (data refreshes on-demand when users visit)
-    server = socketserver.ThreadingTCPServer(("", PORT), ProxyHTTPRequestHandler)
-    server.allow_reuse_address = True
+    # Start HTTP server (data refreshes on-demand when users visit).
+    # On Windows, allowing address reuse can let multiple processes bind the same
+    # port and cause intermittent connection resets in browsers.
+    socketserver.ThreadingTCPServer.allow_reuse_address = (os.name != "nt")
+    try:
+        server = socketserver.ThreadingTCPServer(("", PORT), ProxyHTTPRequestHandler)
+    except OSError as e:
+        if e.errno in (errno.EADDRINUSE, 10048):
+            print(f"Port {PORT} is already in use. Stop the other server process and retry.")
+            sys.exit(1)
+        raise
     with server as httpd:
         print(f"Serving at http://localhost:{PORT}")
         print(f"REST API available at /api/data, /api/data/status")
