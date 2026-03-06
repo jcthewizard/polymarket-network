@@ -1,0 +1,400 @@
+2026-03-06T05:11:41.0530752Z State: Starting, Action: EstablishingSiteNetworks, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-03-06T05:11:45.4616142Z State: Starting, Action: StartingSiteContainers, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: , DetailsLevel: INFO
+2026-03-06T05:11:45.5396822Z Container start method called.
+2026-03-06T05:11:45.5996168Z State: Starting, Action: PullingImage, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pulling image 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:11:45.6094121Z Establishing network.
+2026-03-06T05:11:45.6184656Z Pulling image: appsvc/python:3.11_20260203.2.tuxprod.
+2026-03-06T05:11:46.6831291Z Image appsvc/python:3.11_20260203.2.tuxprod is pulled from registry 10.1.0.5:13209
+2026-03-06T05:11:46.7240130Z Container is starting.
+2026-03-06T05:11:46.7241795Z State: Starting, Action: MountingVolumes, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Mounting volumes for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:11:46.7310188Z Establishing user namespace if not established already.
+2026-03-06T05:11:46.7311874Z Establishing network if not established already.
+2026-03-06T05:11:46.7313441Z Mounting volumes.
+2026-03-06T05:11:46.7521852Z Nested mountpoint 
+2026-03-06T05:11:46.8318772Z Nested mountpoint volatile/logs
+2026-03-06T05:11:46.8536683Z Nested mountpoint 
+2026-03-06T05:11:46.9335011Z Nested mountpoint 
+2026-03-06T05:11:46.9823127Z Nested mountpoint 
+2026-03-06T05:11:47.5581022Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Finished pulling container image and mounting volumes for app-polymarket-test-itqucm. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-03-06T05:11:47.5692039Z Creating container.
+2026-03-06T05:11:47.5788520Z Creating pipes for streaming container io.
+2026-03-06T05:11:47.5886294Z Creating stdout named pipe at /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stdout_4d5d4eb87c0440bd86112413568fee2a.
+2026-03-06T05:11:47.5997147Z Successfully created stdout named pipe at: /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stdout_4d5d4eb87c0440bd86112413568fee2a.
+2026-03-06T05:11:47.6096524Z Opening named pipe /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stdout_4d5d4eb87c0440bd86112413568fee2a for reading in non-blocking mode.
+2026-03-06T05:11:47.6193746Z Successfully opened named pipe: /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stdout_4d5d4eb87c0440bd86112413568fee2a.
+2026-03-06T05:11:47.6469777Z Successfully removed non-blocking flag from /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stdout_4d5d4eb87c0440bd86112413568fee2a.
+2026-03-06T05:11:47.6657896Z Creating stderr named pipe at /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stderr_58507965d510408a8b51ce1da7485a52.
+2026-03-06T05:11:47.6760957Z Successfully created stderr named pipe at: /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stderr_58507965d510408a8b51ce1da7485a52.
+2026-03-06T05:11:47.6780966Z Opening named pipe /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stderr_58507965d510408a8b51ce1da7485a52 for reading in non-blocking mode.
+2026-03-06T05:11:47.6883272Z Successfully opened named pipe: /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stderr_58507965d510408a8b51ce1da7485a52.
+2026-03-06T05:11:47.6889177Z Successfully removed non-blocking flag from /podr/container/pipe/dbb62d3c3ff8_app-polymarket-test-itqucm/stderr_58507965d510408a8b51ce1da7485a52.
+2026-03-06T05:11:47.7064097Z Creating container with image: appsvc/python:3.11_20260203.2.tuxprod from registry: 10.1.0.5:13209 and fully qualified image name: 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod
+2026-03-06T05:11:50.0380863Z Starting container: dbb62d3c3ff8_app-polymarket-test-itqucm.
+2026-03-06T05:11:50.3874623Z Starting watchers and probes.
+2026-03-06T05:11:50.6065040Z Starting metrics collection.
+2026-03-06T05:11:50.7353630Z Container is running.
+2026-03-06T05:11:50.7526450Z State: Starting, Action: CreatingContainer, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:11:51.8219647Z Container start method finished after 6281 ms.
+2026-03-06T05:11:51.8328457Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:11:51.9565735Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-03-06T05:13:39.2968639Z Container has finished running with exit code: 2.
+2026-03-06T05:13:39.3596488Z Container is terminating. Grace period: 5 seconds.
+2026-03-06T05:13:39.4699307Z Stop and delete container. Retry count = 0
+2026-03-06T05:13:39.5265515Z Stopping container: dbb62d3c3ff8_app-polymarket-test-itqucm.
+2026-03-06T05:13:39.8465459Z Deleting container: dbb62d3c3ff8_app-polymarket-test-itqucm. Retry count = 0
+2026-03-06T05:13:40.7175126Z Container spec TerminationMessagePolicy  path 
+2026-03-06T05:13:40.7400581Z Container is terminated. Total time elapsed: 1319 ms.
+2026-03-06T05:13:40.7472963Z Site container: app-polymarket-test-itqucm terminated during site startup.
+2026-03-06T05:13:40.7715130Z State: Stopping, Action: CancellingStartup, LastError: , LastErrorTimestamp: 01/01/0001 00:00:00, LastErrorDetails: , Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:13:40.8187485Z Site startup probe failed after 108.753154 seconds.
+2026-03-06T05:13:41.2208699Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:13:41.2401650Z Failed to start site. Revert by stopping site.
+2026-03-06T05:13:41.2638532Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:13:41.3010381Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:13:41.3092859Z Site: app-polymarket-test-itqucm stopped.
+2026-03-06T05:13:41.3326539Z State: Stopping, Action: UnmountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:13:42.4093363Z State: Stopping, Action: StoppingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:13:43.0201520Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:13:43 (UTC), DetailsLevel: ERR
+2026-03-06T05:13:43.3259216Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:13:43 (UTC), DetailsLevel: ERR
+2026-03-06T05:13:48.8949308Z State: Starting, Action: EstablishingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:13:43 (UTC), DetailsLevel: ERR
+2026-03-06T05:13:51.5516253Z State: Starting, Action: StartingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:13:43 (UTC), DetailsLevel: ERR
+2026-03-06T05:13:51.5520180Z Container start method called.
+2026-03-06T05:13:51.5521514Z State: Starting, Action: PullingImage, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pulling image 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:13:51.5528820Z Establishing network.
+2026-03-06T05:13:51.5539283Z Pulling image: appsvc/python:3.11_20260203.2.tuxprod.
+2026-03-06T05:13:51.8835510Z Container is starting.
+2026-03-06T05:13:51.8837693Z State: Starting, Action: MountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Mounting volumes for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:13:51.8839884Z Establishing user namespace if not established already.
+2026-03-06T05:13:51.9130518Z Establishing network if not established already.
+2026-03-06T05:13:51.9497874Z Mounting volumes.
+2026-03-06T05:13:51.9525081Z Nested mountpoint 
+2026-03-06T05:13:52.0427590Z Nested mountpoint volatile/logs
+2026-03-06T05:13:52.0902204Z Nested mountpoint 
+2026-03-06T05:13:52.1827564Z Nested mountpoint 
+2026-03-06T05:13:52.2332596Z Nested mountpoint 
+2026-03-06T05:13:52.7645038Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Finished pulling container image and mounting volumes for app-polymarket-test-itqucm. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-03-06T05:13:52.7749149Z Creating container.
+2026-03-06T05:13:52.7846294Z Creating pipes for streaming container io.
+2026-03-06T05:13:52.8219635Z Creating stdout named pipe at /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stdout_2ee980d81e604ba48d812a8595b56b6c.
+2026-03-06T05:13:52.8639758Z Successfully created stdout named pipe at: /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stdout_2ee980d81e604ba48d812a8595b56b6c.
+2026-03-06T05:13:52.9112869Z Opening named pipe /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stdout_2ee980d81e604ba48d812a8595b56b6c for reading in non-blocking mode.
+2026-03-06T05:13:52.9119503Z Successfully opened named pipe: /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stdout_2ee980d81e604ba48d812a8595b56b6c.
+2026-03-06T05:13:52.9121469Z Successfully removed non-blocking flag from /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stdout_2ee980d81e604ba48d812a8595b56b6c.
+2026-03-06T05:13:52.9124741Z Creating stderr named pipe at /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stderr_58452558c6bd45deb22917abce084dff.
+2026-03-06T05:13:52.9127151Z Successfully created stderr named pipe at: /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stderr_58452558c6bd45deb22917abce084dff.
+2026-03-06T05:13:52.9248557Z Opening named pipe /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stderr_58452558c6bd45deb22917abce084dff for reading in non-blocking mode.
+2026-03-06T05:13:52.9251334Z Successfully opened named pipe: /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stderr_58452558c6bd45deb22917abce084dff.
+2026-03-06T05:13:52.9450182Z Successfully removed non-blocking flag from /podr/container/pipe/6f58b25404f9_app-polymarket-test-itqucm/stderr_58452558c6bd45deb22917abce084dff.
+2026-03-06T05:13:52.9642842Z Creating container with image: appsvc/python:3.11_20260203.2.tuxprod from registry: 10.1.0.5:13209 and fully qualified image name: 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod
+2026-03-06T05:13:54.3048742Z Starting container: 6f58b25404f9_app-polymarket-test-itqucm.
+2026-03-06T05:13:54.5454435Z Starting watchers and probes.
+2026-03-06T05:13:54.5553587Z Starting metrics collection.
+2026-03-06T05:13:54.5556216Z Container is running.
+2026-03-06T05:13:54.5557651Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:13:54.9046761Z Container start method finished after 3352 ms.
+2026-03-06T05:13:54.9050078Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:13:54.9050551Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-03-06T05:14:44.3408338Z Container has finished running with exit code: 2.
+2026-03-06T05:14:44.3500336Z Container is terminating. Grace period: 5 seconds.
+2026-03-06T05:14:44.3598927Z Stop and delete container. Retry count = 0
+2026-03-06T05:14:44.3600018Z Stopping container: 6f58b25404f9_app-polymarket-test-itqucm.
+2026-03-06T05:14:44.5213822Z Deleting container: 6f58b25404f9_app-polymarket-test-itqucm. Retry count = 0
+2026-03-06T05:14:44.8938297Z Container spec TerminationMessagePolicy  path 
+2026-03-06T05:14:44.9022363Z Container is terminated. Total time elapsed: 549 ms.
+2026-03-06T05:14:44.9098579Z Site container: app-polymarket-test-itqucm terminated during site startup.
+2026-03-06T05:14:44.9110281Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:13:41, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:14:45.0698077Z Site startup probe failed after 50.1638081 seconds.
+2026-03-06T05:14:45.6261921Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:14:45.6390497Z Failed to start site. Revert by stopping site.
+2026-03-06T05:14:45.6471678Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:14:45.6781214Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:14:45.6781671Z Site: app-polymarket-test-itqucm stopped.
+2026-03-06T05:15:40.5048800Z State: Starting, Action: EstablishingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:14:46 (UTC), DetailsLevel: WARN
+2026-03-06T05:15:44.1929535Z State: Starting, Action: StartingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:14:46 (UTC), DetailsLevel: WARN
+2026-03-06T05:15:44.1944303Z Container start method called.
+2026-03-06T05:15:44.2411627Z State: Starting, Action: PullingImage, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pulling image 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:15:44.2508415Z Establishing network.
+2026-03-06T05:15:44.2512066Z Pulling image: appsvc/python:3.11_20260203.2.tuxprod.
+2026-03-06T05:15:44.7267677Z Container is starting.
+2026-03-06T05:15:44.8156305Z State: Starting, Action: MountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Mounting volumes for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:15:44.8256344Z Establishing user namespace if not established already.
+2026-03-06T05:15:44.8271453Z Establishing network if not established already.
+2026-03-06T05:15:44.8273906Z Mounting volumes.
+2026-03-06T05:15:44.8746451Z Nested mountpoint site/wwwroot
+2026-03-06T05:15:44.9873231Z Nested mountpoint volatile/logs
+2026-03-06T05:15:45.1275304Z Nested mountpoint 
+2026-03-06T05:15:45.2652518Z Nested mountpoint 
+2026-03-06T05:15:46.1593475Z Nested mountpoint 
+2026-03-06T05:15:46.3648275Z Nested mountpoint 
+2026-03-06T05:15:47.9001317Z Skipping optional volume mount 'Package' at /home/site/wwwroot.
+2026-03-06T05:15:47.9209253Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Finished pulling container image and mounting volumes for app-polymarket-test-itqucm. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-03-06T05:15:47.9329895Z Creating container.
+2026-03-06T05:15:47.9707601Z Creating pipes for streaming container io.
+2026-03-06T05:15:47.9925283Z Creating stdout named pipe at /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stdout_2d96d413eb0a47e8b55f23d10c541fc1.
+2026-03-06T05:15:47.9930279Z Successfully created stdout named pipe at: /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stdout_2d96d413eb0a47e8b55f23d10c541fc1.
+2026-03-06T05:15:47.9932152Z Opening named pipe /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stdout_2d96d413eb0a47e8b55f23d10c541fc1 for reading in non-blocking mode.
+2026-03-06T05:15:47.9934103Z Successfully opened named pipe: /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stdout_2d96d413eb0a47e8b55f23d10c541fc1.
+2026-03-06T05:15:48.0206814Z Successfully removed non-blocking flag from /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stdout_2d96d413eb0a47e8b55f23d10c541fc1.
+2026-03-06T05:15:48.0405132Z Creating stderr named pipe at /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stderr_c302df0da5194c7ebaaa8142b4da165c.
+2026-03-06T05:15:48.0412387Z Successfully created stderr named pipe at: /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stderr_c302df0da5194c7ebaaa8142b4da165c.
+2026-03-06T05:15:48.0416071Z Opening named pipe /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stderr_c302df0da5194c7ebaaa8142b4da165c for reading in non-blocking mode.
+2026-03-06T05:15:48.0429559Z Successfully opened named pipe: /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stderr_c302df0da5194c7ebaaa8142b4da165c.
+2026-03-06T05:15:48.0508234Z Successfully removed non-blocking flag from /podr/container/pipe/1e24263981cd_app-polymarket-test-itqucm/stderr_c302df0da5194c7ebaaa8142b4da165c.
+2026-03-06T05:15:48.0804456Z Creating container with image: appsvc/python:3.11_20260203.2.tuxprod from registry: 10.1.0.5:13209 and fully qualified image name: 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod
+2026-03-06T05:15:50.4713077Z Starting container: 1e24263981cd_app-polymarket-test-itqucm.
+2026-03-06T05:15:50.6811425Z Starting watchers and probes.
+2026-03-06T05:15:50.6835717Z Starting metrics collection.
+2026-03-06T05:15:50.6915644Z Container is running.
+2026-03-06T05:15:50.6925633Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:15:51.4631336Z Container start method finished after 7267 ms.
+2026-03-06T05:15:51.4817977Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:15:51.4818681Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-03-06T05:16:23.3928873Z Update mount on running container.
+2026-03-06T05:16:24.7764249Z Container failed to remount volume. Terminate.
+2026-03-06T05:16:24.8377335Z Container is terminating. Grace period: 5 seconds.
+2026-03-06T05:16:24.9673915Z Stop and delete container. Retry count = 0
+2026-03-06T05:16:24.9961254Z Stopping container: 1e24263981cd_app-polymarket-test-itqucm.
+2026-03-06T05:16:30.2304743Z Deleting container: 1e24263981cd_app-polymarket-test-itqucm. Retry count = 0
+2026-03-06T05:16:30.8635709Z Container get mounts received unexpected exception.
+2026-03-06T05:16:30.8910907Z Container get mounts received unexpected exception.
+2026-03-06T05:16:31.0218951Z Container get mounts received unexpected exception.
+2026-03-06T05:16:31.3683510Z Container get mounts received unexpected exception.
+2026-03-06T05:16:31.6895205Z Container get processes received unexpected exception.
+2026-03-06T05:16:31.7403264Z Container get processes received unexpected exception.
+2026-03-06T05:16:31.7589383Z Container get processes received unexpected exception.
+2026-03-06T05:16:31.8285844Z Container spec TerminationMessagePolicy  path 
+2026-03-06T05:16:31.8591285Z Container is terminated. Total time elapsed: 6990 ms.
+2026-03-06T05:16:31.8594811Z Site container: app-polymarket-test-itqucm terminated during site startup.
+2026-03-06T05:16:31.8596714Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:14:45, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:16:32.0494770Z Container get processes received unexpected exception.
+2026-03-06T05:16:32.0699938Z Site startup probe failed after 40.388345 seconds.
+2026-03-06T05:16:34.1174695Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:16:34.2822237Z Failed to start site. Revert by stopping site.
+2026-03-06T05:16:34.3044205Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:16:34.3134664Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:16:34.3135127Z Site: app-polymarket-test-itqucm stopped.
+2026-03-06T05:16:34.3363240Z State: Stopping, Action: UnmountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:16:35.9192651Z State: Stopping, Action: StoppingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:16:36.9046259Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:16:36 (UTC), DetailsLevel: ERR
+2026-03-06T05:16:37.1841519Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:16:36 (UTC), DetailsLevel: ERR
+2026-03-06T05:16:38.7534457Z State: Starting, Action: EstablishingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:16:36 (UTC), DetailsLevel: ERR
+2026-03-06T05:16:42.7324868Z State: Starting, Action: StartingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:16:36 (UTC), DetailsLevel: ERR
+2026-03-06T05:16:42.7337506Z Container start method called.
+2026-03-06T05:16:42.7425678Z State: Starting, Action: PullingImage, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pulling image 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:16:42.7429073Z Establishing network.
+2026-03-06T05:16:42.7431496Z Pulling image: appsvc/python:3.11_20260203.2.tuxprod.
+2026-03-06T05:16:43.6486690Z Container is starting.
+2026-03-06T05:16:43.6581632Z State: Starting, Action: MountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Mounting volumes for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:16:43.6672299Z Establishing user namespace if not established already.
+2026-03-06T05:16:43.6704308Z Establishing network if not established already.
+2026-03-06T05:16:43.6772551Z Mounting volumes.
+2026-03-06T05:16:43.6775138Z Nested mountpoint site/wwwroot
+2026-03-06T05:16:43.7981115Z Nested mountpoint volatile/logs
+2026-03-06T05:16:43.8691639Z Nested mountpoint 
+2026-03-06T05:16:43.8709678Z Nested mountpoint 
+2026-03-06T05:16:44.1048951Z Nested mountpoint 
+2026-03-06T05:16:44.3960127Z Nested mountpoint 
+2026-03-06T05:16:46.6461485Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Finished pulling container image and mounting volumes for app-polymarket-test-itqucm. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-03-06T05:16:46.6674752Z Creating container.
+2026-03-06T05:16:46.7271902Z Creating pipes for streaming container io.
+2026-03-06T05:16:46.7350971Z Creating stdout named pipe at /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stdout_e729c2ca062a48fc85c4755962ff73bf.
+2026-03-06T05:16:46.7358333Z Successfully created stdout named pipe at: /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stdout_e729c2ca062a48fc85c4755962ff73bf.
+2026-03-06T05:16:46.7364014Z Opening named pipe /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stdout_e729c2ca062a48fc85c4755962ff73bf for reading in non-blocking mode.
+2026-03-06T05:16:46.7456308Z Successfully opened named pipe: /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stdout_e729c2ca062a48fc85c4755962ff73bf.
+2026-03-06T05:16:46.7566070Z Successfully removed non-blocking flag from /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stdout_e729c2ca062a48fc85c4755962ff73bf.
+2026-03-06T05:16:46.7578715Z Creating stderr named pipe at /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stderr_77379f082aa148fdbb05b1dbe5b73695.
+2026-03-06T05:16:46.7874040Z Successfully created stderr named pipe at: /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stderr_77379f082aa148fdbb05b1dbe5b73695.
+2026-03-06T05:16:46.7956111Z Opening named pipe /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stderr_77379f082aa148fdbb05b1dbe5b73695 for reading in non-blocking mode.
+2026-03-06T05:16:46.7959439Z Successfully opened named pipe: /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stderr_77379f082aa148fdbb05b1dbe5b73695.
+2026-03-06T05:16:46.7960647Z Successfully removed non-blocking flag from /podr/container/pipe/a5f088e8ede8_app-polymarket-test-itqucm/stderr_77379f082aa148fdbb05b1dbe5b73695.
+2026-03-06T05:16:46.8053395Z Creating container with image: appsvc/python:3.11_20260203.2.tuxprod from registry: 10.1.0.5:13209 and fully qualified image name: 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod
+2026-03-06T05:16:48.1389374Z Starting container: a5f088e8ede8_app-polymarket-test-itqucm.
+2026-03-06T05:16:48.3309760Z Starting watchers and probes.
+2026-03-06T05:16:48.4193701Z Starting metrics collection.
+2026-03-06T05:16:48.4198242Z Container is running.
+2026-03-06T05:16:48.4199827Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:16:48.7309969Z Container start method finished after 5997 ms.
+2026-03-06T05:16:48.7312122Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:16:48.7312364Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-03-06T05:18:20.5327149Z Container has finished running with exit code: 1.
+2026-03-06T05:18:20.5426476Z Container is terminating. Grace period: 5 seconds.
+2026-03-06T05:18:20.5731919Z Stop and delete container. Retry count = 0
+2026-03-06T05:18:20.5734385Z Stopping container: a5f088e8ede8_app-polymarket-test-itqucm.
+2026-03-06T05:18:20.8503848Z Deleting container: a5f088e8ede8_app-polymarket-test-itqucm. Retry count = 0
+2026-03-06T05:18:21.8088551Z Container spec TerminationMessagePolicy  path 
+2026-03-06T05:18:21.8364901Z Container is terminated. Total time elapsed: 1292 ms.
+2026-03-06T05:18:21.8387257Z Site container: app-polymarket-test-itqucm terminated during site startup.
+2026-03-06T05:18:21.9053995Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:16:34, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:18:21.9164974Z Site startup probe failed after 93.1773327 seconds.
+2026-03-06T05:18:22.4605903Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:18:22.4816035Z Failed to start site. Revert by stopping site.
+2026-03-06T05:18:22.5087125Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:18:22.5276804Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:18:22.5277370Z Site: app-polymarket-test-itqucm stopped.
+2026-03-06T05:18:22.5497297Z State: Stopping, Action: UnmountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:18:23.6979293Z State: Stopping, Action: StoppingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:18:25.0780804Z Site: app-polymarket-test-itqucm will be blocked for 1 minutes till 03/06/2026 05:19:25
+2026-03-06T05:18:25.1167048Z State: Blocked, Action: StoppingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site: app-polymarket-test-itqucm will be blocked for 1 minutes till 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:18:25.1390796Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:18:25 (UTC), DetailsLevel: WARN
+2026-03-06T05:18:25.9028180Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:18:25 (UTC), DetailsLevel: WARN
+2026-03-06T05:18:31.1941880Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:18:31.1942390Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:18:36.5723331Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:18:36.5724237Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:18:41.9870907Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:18:41.9873001Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:18:47.3502249Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:18:47.3502757Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:18:52.8407001Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:18:52.8411085Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:18:58.0608570Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:18:58.0608911Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:19:03.3391768Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:19:03.3393124Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:19:08.6095873Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:19:08.6096228Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:19:13.9913615Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:19:13.9914466Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:19:19.2873599Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:19:19.2965589Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:19:24.6892185Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:19:24.6892992Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:19:25.0850060Z Site: app-polymarket-test-itqucm is unblocked.
+2026-03-06T05:19:29.9740406Z State: Starting, Action: EstablishingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:19:33.3898210Z State: Starting, Action: StartingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:19:25, DetailsLevel: WARN
+2026-03-06T05:19:33.3900272Z Container start method called.
+2026-03-06T05:19:33.4109835Z State: Starting, Action: PullingImage, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pulling image 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:19:33.4118396Z Establishing network.
+2026-03-06T05:19:33.4193306Z Pulling image: appsvc/python:3.11_20260203.2.tuxprod.
+2026-03-06T05:19:33.8304408Z Container is starting.
+2026-03-06T05:19:33.8375187Z State: Starting, Action: MountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Mounting volumes for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:19:33.8376944Z Establishing user namespace if not established already.
+2026-03-06T05:19:33.8388767Z Establishing network if not established already.
+2026-03-06T05:19:33.8390075Z Mounting volumes.
+2026-03-06T05:19:33.8391812Z Nested mountpoint site/wwwroot
+2026-03-06T05:19:33.8880851Z Nested mountpoint volatile/logs
+2026-03-06T05:19:33.9210653Z Nested mountpoint 
+2026-03-06T05:19:33.9393636Z Nested mountpoint 
+2026-03-06T05:19:34.0846249Z Nested mountpoint 
+2026-03-06T05:19:34.1815252Z Nested mountpoint 
+2026-03-06T05:19:35.3662278Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Finished pulling container image and mounting volumes for app-polymarket-test-itqucm. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-03-06T05:19:35.3664552Z Creating container.
+2026-03-06T05:19:35.4160970Z Creating pipes for streaming container io.
+2026-03-06T05:19:35.4328649Z Creating stdout named pipe at /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stdout_ca9165de768a4ef492135e0b73242000.
+2026-03-06T05:19:35.4350485Z Successfully created stdout named pipe at: /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stdout_ca9165de768a4ef492135e0b73242000.
+2026-03-06T05:19:35.4559530Z Opening named pipe /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stdout_ca9165de768a4ef492135e0b73242000 for reading in non-blocking mode.
+2026-03-06T05:19:35.4731218Z Successfully opened named pipe: /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stdout_ca9165de768a4ef492135e0b73242000.
+2026-03-06T05:19:35.4757475Z Successfully removed non-blocking flag from /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stdout_ca9165de768a4ef492135e0b73242000.
+2026-03-06T05:19:35.4856238Z Creating stderr named pipe at /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stderr_1d7481a8812d42aca3aaa0e6fb0980a0.
+2026-03-06T05:19:35.4939887Z Successfully created stderr named pipe at: /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stderr_1d7481a8812d42aca3aaa0e6fb0980a0.
+2026-03-06T05:19:35.5226982Z Opening named pipe /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stderr_1d7481a8812d42aca3aaa0e6fb0980a0 for reading in non-blocking mode.
+2026-03-06T05:19:35.5250875Z Successfully opened named pipe: /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stderr_1d7481a8812d42aca3aaa0e6fb0980a0.
+2026-03-06T05:19:35.5331998Z Successfully removed non-blocking flag from /podr/container/pipe/e68099ff4b54_app-polymarket-test-itqucm/stderr_1d7481a8812d42aca3aaa0e6fb0980a0.
+2026-03-06T05:19:35.5345489Z Creating container with image: appsvc/python:3.11_20260203.2.tuxprod from registry: 10.1.0.5:13209 and fully qualified image name: 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod
+2026-03-06T05:19:36.6134294Z Starting container: e68099ff4b54_app-polymarket-test-itqucm.
+2026-03-06T05:19:36.7787179Z Starting watchers and probes.
+2026-03-06T05:19:36.7793343Z Starting metrics collection.
+2026-03-06T05:19:36.7801542Z Container is running.
+2026-03-06T05:19:36.7807290Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:19:37.2453665Z Container start method finished after 3855 ms.
+2026-03-06T05:19:37.2456235Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:19:37.2456512Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-03-06T05:20:29.8356334Z Container has finished running with exit code: 1.
+2026-03-06T05:20:29.8358969Z Container is terminating. Grace period: 5 seconds.
+2026-03-06T05:20:29.8366754Z Stop and delete container. Retry count = 0
+2026-03-06T05:20:29.8368632Z Stopping container: e68099ff4b54_app-polymarket-test-itqucm.
+2026-03-06T05:20:29.9985959Z Deleting container: e68099ff4b54_app-polymarket-test-itqucm. Retry count = 0
+2026-03-06T05:20:30.5377983Z Container spec TerminationMessagePolicy  path 
+2026-03-06T05:20:30.5468252Z Container is terminated. Total time elapsed: 710 ms.
+2026-03-06T05:20:30.5479925Z Site container: app-polymarket-test-itqucm terminated during site startup.
+2026-03-06T05:20:30.5488710Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:18:22, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:20:30.5774823Z Site startup probe failed after 53.3312739 seconds.
+2026-03-06T05:20:30.7794507Z Container get mounts received unexpected exception.
+2026-03-06T05:20:31.2584330Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:20:31.2962939Z Failed to start site. Revert by stopping site.
+2026-03-06T05:20:31.3055843Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:20:31.3776359Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:20:31.3865836Z Site: app-polymarket-test-itqucm stopped.
+2026-03-06T05:20:31.3968555Z State: Stopping, Action: UnmountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:20:31.9679248Z State: Stopping, Action: StoppingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:20:32.1752293Z Site: app-polymarket-test-itqucm will be blocked for 1 minutes till 03/06/2026 05:21:32
+2026-03-06T05:20:32.1753886Z State: Blocked, Action: StoppingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site: app-polymarket-test-itqucm will be blocked for 1 minutes till 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:20:32.1756780Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:20:32 (UTC), DetailsLevel: WARN
+2026-03-06T05:20:32.4128720Z State: Stopped, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site stopped at 03/06/2026 05:20:32 (UTC), DetailsLevel: WARN
+2026-03-06T05:20:37.8687713Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:20:37.8688610Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:20:43.1213592Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:20:43.1214858Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:20:48.3507460Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:20:48.3507857Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:20:53.5268541Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:20:53.5269277Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:20:58.9618759Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:20:58.9619082Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:21:04.2390834Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:21:04.2393456Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:21:09.5822817Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:21:09.5823141Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:21:14.8384076Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:21:14.8384408Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:21:20.0497609Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:21:20.0498150Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:21:25.3750825Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:21:25.3751170Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:21:30.7471439Z State: Blocked, Action: None, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:21:30.7473542Z Start site prohibitted because the site is being blocked.
+2026-03-06T05:21:32.1968930Z Site: app-polymarket-test-itqucm is unblocked.
+2026-03-06T05:28:33.1918377Z State: Starting, Action: EstablishingSiteNetworks, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:28:35.9304332Z State: Starting, Action: StartingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site is blocked due to multiple, consecutive cold start failures. Site scheduled to be unblocked at 03/06/2026 05:21:32, DetailsLevel: WARN
+2026-03-06T05:28:35.9305593Z Container start method called.
+2026-03-06T05:28:35.9395048Z State: Starting, Action: PullingImage, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pulling image 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:28:35.9397246Z Establishing network.
+2026-03-06T05:28:35.9398581Z Pulling image: appsvc/python:3.11_20260203.2.tuxprod.
+2026-03-06T05:28:36.1317462Z Container is starting.
+2026-03-06T05:28:36.1318602Z State: Starting, Action: MountingVolumes, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Mounting volumes for app-polymarket-test-itqucm., DetailsLevel: INFO
+2026-03-06T05:28:36.1319840Z Establishing user namespace if not established already.
+2026-03-06T05:28:36.1320866Z Establishing network if not established already.
+2026-03-06T05:28:36.1430404Z Mounting volumes.
+2026-03-06T05:28:36.1510332Z Nested mountpoint site/wwwroot
+2026-03-06T05:28:36.2020730Z Nested mountpoint volatile/logs
+2026-03-06T05:28:36.2708348Z Nested mountpoint 
+2026-03-06T05:28:36.2715450Z Nested mountpoint 
+2026-03-06T05:28:36.3223555Z Nested mountpoint 
+2026-03-06T05:28:36.3434128Z Nested mountpoint 
+2026-03-06T05:28:38.0977983Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Finished pulling container image and mounting volumes for app-polymarket-test-itqucm. Allocatinng the rest of the container resources to finish container creation., DetailsLevel: INFO
+2026-03-06T05:28:38.0983990Z Creating container.
+2026-03-06T05:28:38.0987105Z Creating pipes for streaming container io.
+2026-03-06T05:28:38.0989706Z Creating stdout named pipe at /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stdout_76337e4ab896473398ee621eabe0a45f.
+2026-03-06T05:28:38.1384759Z Successfully created stdout named pipe at: /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stdout_76337e4ab896473398ee621eabe0a45f.
+2026-03-06T05:28:38.1559430Z Opening named pipe /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stdout_76337e4ab896473398ee621eabe0a45f for reading in non-blocking mode.
+2026-03-06T05:28:38.1575199Z Successfully opened named pipe: /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stdout_76337e4ab896473398ee621eabe0a45f.
+2026-03-06T05:28:38.1744143Z Successfully removed non-blocking flag from /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stdout_76337e4ab896473398ee621eabe0a45f.
+2026-03-06T05:28:38.1853202Z Creating stderr named pipe at /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stderr_edc97f005c0849419b87dbd7275afdd3.
+2026-03-06T05:28:38.1952832Z Successfully created stderr named pipe at: /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stderr_edc97f005c0849419b87dbd7275afdd3.
+2026-03-06T05:28:38.2049694Z Opening named pipe /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stderr_edc97f005c0849419b87dbd7275afdd3 for reading in non-blocking mode.
+2026-03-06T05:28:38.2141233Z Successfully opened named pipe: /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stderr_edc97f005c0849419b87dbd7275afdd3.
+2026-03-06T05:28:38.2337465Z Successfully removed non-blocking flag from /podr/container/pipe/ca26eb1f39be_app-polymarket-test-itqucm/stderr_edc97f005c0849419b87dbd7275afdd3.
+2026-03-06T05:28:38.3020819Z Creating container with image: appsvc/python:3.11_20260203.2.tuxprod from registry: 10.1.0.5:13209 and fully qualified image name: 10.1.0.5:13209/appsvc/python:3.11_20260203.2.tuxprod
+2026-03-06T05:28:39.5960570Z Starting container: ca26eb1f39be_app-polymarket-test-itqucm.
+2026-03-06T05:28:39.7547137Z Starting watchers and probes.
+2026-03-06T05:28:39.7639758Z Starting metrics collection.
+2026-03-06T05:28:39.7648566Z Container is running.
+2026-03-06T05:28:39.7650143Z State: Starting, Action: CreatingContainer, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:28:39.9518197Z Container start method finished after 4011 ms.
+2026-03-06T05:28:40.0940555Z State: Starting, Action: InitiatingSiteWarmUpProbe, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Container app-polymarket-test-itqucm successfully created and is running., DetailsLevel: INFO
+2026-03-06T05:28:40.1006233Z State: Starting, Action: WaitingForSiteWarmUpProbeSuccess, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Pinging warmup path to ensure container is ready to receive requests., DetailsLevel: INFO
+2026-03-06T05:29:35.3916587Z Container has finished running with exit code: 1.
+2026-03-06T05:29:35.3934661Z Container is terminating. Grace period: 5 seconds.
+2026-03-06T05:29:35.4023320Z Stop and delete container. Retry count = 0
+2026-03-06T05:29:35.4024565Z Stopping container: ca26eb1f39be_app-polymarket-test-itqucm.
+2026-03-06T05:29:35.5817591Z Deleting container: ca26eb1f39be_app-polymarket-test-itqucm. Retry count = 0
+2026-03-06T05:29:36.0685643Z Container spec TerminationMessagePolicy  path 
+2026-03-06T05:29:36.0796531Z Container is terminated. Total time elapsed: 677 ms.
+2026-03-06T05:29:36.0879775Z Site container: app-polymarket-test-itqucm terminated during site startup.
+2026-03-06T05:29:36.1383313Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:20:31, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:29:36.1579231Z Site startup probe failed after 56.0564024 seconds.
+2026-03-06T05:29:36.5474308Z State: Stopping, Action: CancellingStartup, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:29:36, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:29:36.5774313Z Failed to start site. Revert by stopping site.
+2026-03-06T05:29:36.5968939Z State: Stopping, Action: StoppingSite, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:29:36, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:29:36.6059822Z State: Stopping, Action: StoppingSiteContainers, LastError: ContainerTimeout, LastErrorTimestamp: 03/06/2026 05:29:36, LastErrorDetails: Container did not start within expected time limit of 230s. Please inspect your container logs for more details., Details: Site container: app-polymarket-test-itqucm terminated during site startup. Cancelling site startup., DetailsLevel: ERR
+2026-03-06T05:29:36.6060096Z Site: app-polymarket-test-itqucm stopped.

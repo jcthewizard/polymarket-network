@@ -14,12 +14,13 @@ import errno
 import threading
 from datetime import datetime
 
+import config
 import database as db
 from llm_utils import call_openai_chat_text
 import autotrader
 from urllib.parse import urlparse, parse_qs
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", "8000"))
 
 # ── Resolved markets cache (for backtest search) ──────────────
 _resolved_markets_cache = None
@@ -271,13 +272,19 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             last_refresh = db.get_metadata('last_refresh')
             total_markets = db.get_metadata('total_markets')
             total_correlations = db.get_metadata('total_correlations')
+            refresh_state = db.get_metadata('refresh_state')
+            refresh_started_at = db.get_metadata('refresh_started_at')
+            refresh_error = db.get_metadata('refresh_error')
             
             response = {
                 'last_refresh': last_refresh,
                 'total_markets': int(total_markets) if total_markets else 0,
                 'total_correlations': int(total_correlations) if total_correlations else 0,
                 'db_path': db.DB_PATH,
-                'status': 'ready' if last_refresh else 'needs_refresh'
+                'status': 'ready' if last_refresh else 'needs_refresh',
+                'refresh_state': refresh_state or ('ready' if last_refresh else 'idle'),
+                'refresh_started_at': refresh_started_at,
+                'refresh_error': refresh_error,
             }
             
             self.send_json_response(response)
@@ -868,9 +875,25 @@ def check_and_refresh():
     threading.Thread(target=do_refresh, daemon=True).start()
 
 
+def maybe_start_autotrader_on_boot():
+    """Start the autotrader during server boot when explicitly enabled."""
+    if not config.TRADING_ENABLED:
+        print("[Autotrader] Boot auto-start disabled (TRADING_ENABLED=false).")
+        return {"status": "disabled"}
+
+    try:
+        result = autotrader.start()
+        print(f"[Autotrader] Boot auto-start result: {result}")
+        return result
+    except Exception as exc:
+        print(f"[Autotrader] Boot auto-start failed: {exc}")
+        return {"status": "error", "error": str(exc)}
+
+
 if __name__ == '__main__':
     # Initialize database
     db.init_db()
+    maybe_start_autotrader_on_boot()
 
     # Start HTTP server (data refreshes on-demand when users visit).
     # On Windows, allowing address reuse can let multiple processes bind the same

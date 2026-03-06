@@ -42,6 +42,9 @@ MIN_VOLUME_CORRELATE = 50000  # Minimum volume for history fetch + correlation (
 MIN_VARIANCE = 0.001  # Minimum variance for correlation
 CORRELATION_THRESHOLD = 0.5  # Minimum correlation to create link
 MAX_LINKS_PER_NODE = 10  # Maximum connections per node
+ENABLE_LLM_CLASSIFICATION = os.environ.get("ENABLE_LLM_CLASSIFICATION", "1").lower() not in {"0", "false", "no"}
+MAX_MARKETS_STORE = int(os.environ.get("MAX_MARKETS_STORE", 500))
+MAX_MARKETS_CORRELATE = int(os.environ.get("MAX_MARKETS_CORRELATE", 200))
 
 
 def log(message: str):
@@ -61,7 +64,11 @@ def fetch_markets() -> List[Dict]:
     limit = 500  # API max per request
     
     while True:
-        url = f"https://gamma-api.polymarket.com/markets?active=true&closed=false&limit={limit}&offset={offset}"
+        url = (
+            "https://gamma-api.polymarket.com/markets"
+            f"?active=true&closed=false&limit={limit}&offset={offset}"
+            "&order=volume&ascending=false"
+        )
         
         try:
             markets = fetch_json_with_retries(
@@ -202,173 +209,194 @@ def refresh_data():
     """Main function to refresh all data."""
     log("Starting data refresh...")
     start_time = time.time()
-    
-    # 1. Cache existing categories so we don't have to re-classify
-    category_cache = db.get_all_categories()
-    log(f"Cached {len(category_cache)} existing categories")
-    question_category_cache = {}
-    for existing_market in db.get_all_markets():
-        existing_category = existing_market.get('category', 'Other')
-        if existing_category and existing_category != 'Other':
-            question_category_cache[normalize_question(existing_market.get('name', ''))] = existing_category
-    
-    # 2. Fetch markets from API
-    raw_markets = fetch_markets()
-    if not raw_markets:
-        log("No markets fetched, aborting refresh.")
-        return
-    
-    # 3. Filter markets by volume and probability (store all >= 10k)
-    markets = []
-    for m in raw_markets:
-        try:
-            volume = float(m.get('volume', 0) or 0)
-            if volume >= MIN_VOLUME_STORE:
-                # Parse probability
-                prices_str = m.get('outcomePrices', '[]')
-                prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
-                prob = float(prices[0]) if prices else 0.5
-                if prob > 1:
-                    prob = prob / 100
-                prob = max(0, min(1, prob))
+    db.set_metadata('refresh_state', 'running')
+    db.set_metadata('refresh_started_at', datetime.now().isoformat())
+    try:
+        # 1. Cache existing categories so we don't have to re-classify
+        category_cache = db.get_all_categories()
+        log(f"Cached {len(category_cache)} existing categories")
+        question_category_cache = {}
+        for existing_market in db.get_all_markets():
+            existing_category = existing_market.get('category', 'Other')
+            if existing_category and existing_category != 'Other':
+                question_category_cache[normalize_question(existing_market.get('name', ''))] = existing_category
+        
+        # 2. Fetch markets from API
+        raw_markets = fetch_markets()
+        if not raw_markets:
+            db.set_metadata('refresh_state', 'error')
+            db.set_metadata('refresh_error', 'No markets fetched from API')
+            log("No markets fetched, aborting refresh.")
+            return
+        
+        # 3. Filter markets by volume and probability (store all >= 10k)
+        markets = []
+        for m in raw_markets:
+            try:
+                volume = float(m.get('volume', 0) or 0)
+                if volume >= MIN_VOLUME_STORE:
+                    # Parse probability
+                    prices_str = m.get('outcomePrices', '[]')
+                    prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
+                    prob = float(prices[0]) if prices else 0.5
+                    if prob > 1:
+                        prob = prob / 100
+                    prob = max(0, min(1, prob))
 
-                # Filter out settled markets (prob < 5% or > 95%)
-                if prob < 0.05 or prob > 0.95:
-                    continue
+                    # Filter out settled markets (prob < 5% or > 95%)
+                    if prob < 0.05 or prob > 0.95:
+                        continue
 
-                # Parse clob token id
-                clob_str = m.get('clobTokenIds', '[]')
-                clob_ids = json.loads(clob_str) if isinstance(clob_str, str) else clob_str
-                clob_token_id = clob_ids[0] if clob_ids else None
+                    # Parse clob token id
+                    clob_str = m.get('clobTokenIds', '[]')
+                    clob_ids = json.loads(clob_str) if isinstance(clob_str, str) else clob_str
+                    clob_token_id = clob_ids[0] if clob_ids else None
 
-                if clob_token_id:
-                    markets.append({
-                        'id': m['id'],
-                        'name': m['question'],
-                        'slug': m.get('slug', ''),
-                        'volume': volume,
-                        'probability': prob,
-                        'clob_token_id': clob_token_id,
-                        'condition_id': m.get('conditionId', ''),
-                        'clob_token_id_yes': clob_ids[0] if len(clob_ids) > 0 else '',
-                        'clob_token_id_no': clob_ids[1] if len(clob_ids) > 1 else '',
-                    })
-        except Exception as e:
-            continue
+                    if clob_token_id:
+                        markets.append({
+                            'id': m['id'],
+                            'name': m['question'],
+                            'slug': m.get('slug', ''),
+                            'volume': volume,
+                            'probability': prob,
+                            'clob_token_id': clob_token_id,
+                            'condition_id': m.get('conditionId', ''),
+                            'clob_token_id_yes': clob_ids[0] if len(clob_ids) > 0 else '',
+                            'clob_token_id_no': clob_ids[1] if len(clob_ids) > 1 else '',
+                        })
+            except Exception:
+                continue
 
-    log(f"Filtered to {len(markets)} markets with volume >= ${MIN_VOLUME_STORE:,} and 5% < prob < 95%")
+        markets.sort(key=lambda item: item['volume'], reverse=True)
+        if MAX_MARKETS_STORE > 0:
+            markets = markets[:MAX_MARKETS_STORE]
 
-    # 5. Classify all markets, but only fetch history for high-volume ones (>= 50k)
-    history_map = {}  # market_id -> history
+        log(f"Filtered to {len(markets)} markets with volume >= ${MIN_VOLUME_STORE:,} and 5% < prob < 95%")
 
-    for i, market in enumerate(markets):
-        # Check if already has category in cache
-        if market['id'] in category_cache:
-            market['category'] = category_cache[market['id']]
-            question_category_cache[normalize_question(market['name'])] = market['category']
-        else:
-            normalized = normalize_question(market['name'])
-            if normalized in question_category_cache:
-                market['category'] = question_category_cache[normalized]
+        # 5. Classify all markets, but only fetch history for high-volume ones (>= 50k)
+        history_map = {}  # market_id -> history
+        correlate_candidates = [market['id'] for market in markets if market['volume'] >= MIN_VOLUME_CORRELATE]
+        if MAX_MARKETS_CORRELATE > 0:
+            correlate_candidates = correlate_candidates[:MAX_MARKETS_CORRELATE]
+        correlate_candidate_ids = set(correlate_candidates)
+
+        for i, market in enumerate(markets):
+            # Check if already has category in cache
+            if market['id'] in category_cache:
+                market['category'] = category_cache[market['id']]
+                question_category_cache[normalize_question(market['name'])] = market['category']
             else:
-                # Classify with LLM
-                market['category'] = classify_with_llm(market['name'])
-                question_category_cache[normalized] = market['category']
-                log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
+                normalized = normalize_question(market['name'])
+                if normalized in question_category_cache:
+                    market['category'] = question_category_cache[normalized]
+                else:
+                    if ENABLE_LLM_CLASSIFICATION:
+                        market['category'] = classify_with_llm(market['name'])
+                    else:
+                        market['category'] = 'Other'
+                    question_category_cache[normalized] = market['category']
+                    if ENABLE_LLM_CLASSIFICATION:
+                        log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
 
-        # Only fetch history for markets above correlation threshold
-        if market['volume'] >= MIN_VOLUME_CORRELATE:
-            history = fetch_market_history(market['clob_token_id'])
-            if history and len(history) >= 10:
-                history_map[market['id']] = history
+            # Only fetch history for markets above correlation threshold
+            if market['id'] in correlate_candidate_ids:
+                history = fetch_market_history(market['clob_token_id'])
+                if history and len(history) >= 10:
+                    history_map[market['id']] = history
 
-        if (i + 1) % 50 == 0:
-            log(f"  Processed {i + 1}/{len(markets)} markets...")
+            if (i + 1) % 50 == 0:
+                log(f"  Processed {i + 1}/{len(markets)} markets...")
 
-        # Small delay to avoid rate limiting
-        time.sleep(0.1)
+            # Small delay to avoid rate limiting
+            time.sleep(0.1)
 
-    log(f"Stored {len(markets)} markets, {len(history_map)} with history (vol >= ${MIN_VOLUME_CORRELATE:,})")
-    
-    # 6. Calculate correlations (IN MEMORY)
-    log("Calculating correlations...")
-    
-    market_ids = list(history_map.keys())
-    candidate_links = []
-    adjacency = {mid: [] for mid in market_ids}
-    
-    for i in range(len(market_ids)):
-        for j in range(i + 1, len(market_ids)):
-            id_a = market_ids[i]
-            id_b = market_ids[j]
-            
-            history_a = history_map[id_a]
-            history_b = history_map[id_b]
-            
-            prices_a, prices_b = align_by_timestamp(history_a, history_b)
-            
-            if len(prices_a) < 10:
-                continue
-            
-            returns_a = calculate_log_returns(prices_a)
-            returns_b = calculate_log_returns(prices_b)
-            
-            if len(returns_a) < 9:
-                continue
-            
-            # Stagnant market filter
-            var_a = calculate_variance(returns_a)
-            var_b = calculate_variance(returns_b)
-            
-            if var_a < MIN_VARIANCE or var_b < MIN_VARIANCE:
-                continue
-            
-            correlation = calculate_correlation(returns_a, returns_b)
-            
-            if abs(correlation) > CORRELATION_THRESHOLD:
-                # Get market data for inefficiency calculation
-                market_a = next((m for m in markets if m['id'] == id_a), None)
-                market_b = next((m for m in markets if m['id'] == id_b), None)
+        log(f"Stored {len(markets)} markets, {len(history_map)} with history (vol >= ${MIN_VOLUME_CORRELATE:,})")
+        
+        # 6. Calculate correlations (IN MEMORY)
+        log("Calculating correlations...")
+        
+        market_ids = list(history_map.keys())
+        candidate_links = []
+        adjacency = {mid: [] for mid in market_ids}
+        
+        for i in range(len(market_ids)):
+            for j in range(i + 1, len(market_ids)):
+                id_a = market_ids[i]
+                id_b = market_ids[j]
                 
-                inefficiency = "Low"
-                if market_a and market_b:
-                    prob_diff = abs(market_a['probability'] - market_b['probability'])
-                    if abs(correlation) > 0.6 and prob_diff > 0.3:
-                        inefficiency = "High"
+                history_a = history_map[id_a]
+                history_b = history_map[id_b]
                 
-                candidate_links.append({
-                    'source': id_a,
-                    'target': id_b,
-                    'correlation': correlation,
-                    'inefficiency': inefficiency
-                })
-                adjacency[id_a].append(candidate_links[-1])
-                adjacency[id_b].append(candidate_links[-1])
-    
-    # Limit links per node
-    final_links = []
-    links_added = set()
-    for mid in market_ids:
-        node_links = sorted(adjacency[mid], key=lambda x: abs(x['correlation']), reverse=True)
-        for link in node_links[:MAX_LINKS_PER_NODE]:
-            link_key = tuple(sorted([link['source'], link['target']]))
-            if link_key not in links_added:
-                final_links.append(link)
-                links_added.add(link_key)
-    
-    log(f"Calculated {len(final_links)} correlations")
-    
-    # 7. ATOMIC COMMIT - Replace all data at once
-    log("Committing all data atomically...")
-    db.atomic_replace_all_data(markets, history_map, final_links)
-    
-    # 8. Update metadata
-    db.set_metadata('last_refresh', datetime.now().isoformat())
-    db.set_metadata('total_markets', str(len(markets)))
-    db.set_metadata('total_correlations', str(len(final_links)))
-    
-    elapsed = time.time() - start_time
-    log(f"Data refresh complete in {elapsed:.1f} seconds")
+                prices_a, prices_b = align_by_timestamp(history_a, history_b)
+                
+                if len(prices_a) < 10:
+                    continue
+                
+                returns_a = calculate_log_returns(prices_a)
+                returns_b = calculate_log_returns(prices_b)
+                
+                if len(returns_a) < 9:
+                    continue
+                
+                # Stagnant market filter
+                var_a = calculate_variance(returns_a)
+                var_b = calculate_variance(returns_b)
+                
+                if var_a < MIN_VARIANCE or var_b < MIN_VARIANCE:
+                    continue
+                
+                correlation = calculate_correlation(returns_a, returns_b)
+                
+                if abs(correlation) > CORRELATION_THRESHOLD:
+                    # Get market data for inefficiency calculation
+                    market_a = next((m for m in markets if m['id'] == id_a), None)
+                    market_b = next((m for m in markets if m['id'] == id_b), None)
+                    
+                    inefficiency = "Low"
+                    if market_a and market_b:
+                        prob_diff = abs(market_a['probability'] - market_b['probability'])
+                        if abs(correlation) > 0.6 and prob_diff > 0.3:
+                            inefficiency = "High"
+                    
+                    candidate_links.append({
+                        'source': id_a,
+                        'target': id_b,
+                        'correlation': correlation,
+                        'inefficiency': inefficiency
+                    })
+                    adjacency[id_a].append(candidate_links[-1])
+                    adjacency[id_b].append(candidate_links[-1])
+        
+        # Limit links per node
+        final_links = []
+        links_added = set()
+        for mid in market_ids:
+            node_links = sorted(adjacency[mid], key=lambda x: abs(x['correlation']), reverse=True)
+            for link in node_links[:MAX_LINKS_PER_NODE]:
+                link_key = tuple(sorted([link['source'], link['target']]))
+                if link_key not in links_added:
+                    final_links.append(link)
+                    links_added.add(link_key)
+        
+        log(f"Calculated {len(final_links)} correlations")
+        
+        # 7. ATOMIC COMMIT - Replace all data at once
+        log("Committing all data atomically...")
+        db.atomic_replace_all_data(markets, history_map, final_links)
+        
+        # 8. Update metadata
+        db.set_metadata('last_refresh', datetime.now().isoformat())
+        db.set_metadata('total_markets', str(len(markets)))
+        db.set_metadata('total_correlations', str(len(final_links)))
+        db.set_metadata('refresh_state', 'ready')
+        db.set_metadata('refresh_error', '')
+        
+        elapsed = time.time() - start_time
+        log(f"Data refresh complete in {elapsed:.1f} seconds")
+    except Exception as exc:
+        db.set_metadata('refresh_state', 'error')
+        db.set_metadata('refresh_error', str(exc))
+        raise
 
 
 def run_worker():

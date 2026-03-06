@@ -8,7 +8,10 @@ import json
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'polymarket.db')
+DB_PATH = os.environ.get(
+    'DB_PATH',
+    os.path.join(os.path.dirname(__file__), 'data', 'polymarket.db')
+)
 
 
 def get_connection():
