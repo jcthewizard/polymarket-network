@@ -114,7 +114,7 @@
     <div id="discover-viz" class="fixed inset-0 hidden"></div>
 
     <!-- Header -->
-    <header class="fixed top-0 left-0 right-0 z-40 px-4 md:px-6 pt-4 md:pt-6 pointer-events-none">
+    <header id="page-header" class="fixed top-0 left-0 right-0 z-40 px-4 md:px-6 pt-4 md:pt-6 pointer-events-none">
         <div class="flex justify-between items-start pointer-events-auto">
             <div>
                 <div class="flex items-center gap-3">
@@ -149,6 +149,11 @@
             </div>
         </div>
     </header>
+
+    <button id="detailed-view-btn"
+        class="fixed top-20 right-4 md:top-24 md:right-6 z-40 hidden bg-white/95 backdrop-blur-md hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 shadow-sm hover:shadow-md pointer-events-auto">
+        Show Stats
+    </button>
 
     <!-- Search / Config Panel (centered) -->
     <div id="search-panel" class="fixed inset-0 flex items-center justify-center z-30">

@@ -7,6 +7,10 @@ let backtestResults = null; // { leader, trades, summary, timeframes }
 let graphApi = null;
 let categoryColorScale = null;
 let activeCategories = new Set();
+let isDetailedView = true;
+let sidebarWasCollapsedBeforeDetailed = false;
+let graphRenderTimeout = null;
+let graphRenderToken = 0;
 
 // Slider state
 let selectedTimeframe = '1d';
@@ -136,8 +140,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ── New Search ─────────────────────────────────────────
     document.getElementById('new-search-btn').addEventListener('click', () => {
+        if (graphRenderTimeout) {
+            clearTimeout(graphRenderTimeout);
+            graphRenderTimeout = null;
+        }
+        graphRenderToken += 1;
         document.getElementById('discover-viz').classList.add('hidden');
         document.getElementById('discover-viz').innerHTML = '';
+        document.getElementById('discover-viz').style.background = '';
         hideProgress();
         hideSidebar();
         hideResultsPanel();
@@ -145,6 +155,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('new-search-btn').classList.add('hidden');
         discoverResults = null;
         backtestResults = null;
+        graphApi = null;
+        setDetailedView(true);
         sessionStorage.removeItem('backtestFullResults');
         clearSelection();
         renderHistory();
@@ -155,6 +167,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('expand-sidebar-btn').addEventListener('click', expandSidebar);
     document.getElementById('sidebar-tab-list').addEventListener('click', () => switchSidebarTab('list'));
     document.getElementById('sidebar-tab-log').addEventListener('click', () => switchSidebarTab('log'));
+    document.getElementById('detailed-view-btn').addEventListener('click', () => {
+        setDetailedView(!isDetailedView);
+    });
 
     // ── Modal handlers ────────────────────────────────────
     document.getElementById('close-modal-btn').addEventListener('click', closeModal);
@@ -316,9 +331,11 @@ function cleanupStepsHtml(container) {
 
 function showSidebar() {
     const sidebar = document.getElementById('discovery-sidebar');
+    if (isDetailedView) return;
     const sidebarSteps = document.getElementById('sidebar-steps');
     const progressBody = document.getElementById('progress-body');
 
+    sidebar.classList.remove('hidden');
     sidebarSteps.innerHTML = progressBody.innerHTML;
     cleanupStepsHtml(sidebarSteps);
     switchSidebarTab('list');
@@ -335,6 +352,7 @@ function hideSidebar() {
 }
 
 function collapseSidebar() {
+    if (isDetailedView) return;
     const sidebar = document.getElementById('discovery-sidebar');
     sidebar.classList.add('translate-x-[-120%]');
     sidebar.classList.remove('translate-x-0');
@@ -342,10 +360,71 @@ function collapseSidebar() {
 }
 
 function expandSidebar() {
+    if (isDetailedView) return;
     const sidebar = document.getElementById('discovery-sidebar');
+    sidebar.classList.remove('hidden');
     sidebar.classList.remove('translate-x-[-120%]');
     sidebar.classList.add('translate-x-0');
     document.getElementById('expand-sidebar-btn').classList.add('hidden');
+}
+
+function syncDetailedViewUi() {
+    const header = document.getElementById('page-header');
+    const sidebar = document.getElementById('discovery-sidebar');
+    const expandBtn = document.getElementById('expand-sidebar-btn');
+    const detailedViewBtn = document.getElementById('detailed-view-btn');
+    const graphVisible = !document.getElementById('discover-viz').classList.contains('hidden') && !!discoverResults;
+
+    detailedViewBtn.classList.toggle('hidden', !graphVisible);
+    detailedViewBtn.textContent = isDetailedView ? 'Show Stats' : 'Hide Stats';
+
+    if (!graphVisible) {
+        header.classList.remove('hidden');
+        sidebar.classList.remove('hidden');
+        expandBtn.classList.add('hidden');
+        return;
+    }
+
+    if (isDetailedView) {
+        header.classList.add('hidden');
+        sidebar.classList.add('hidden');
+        expandBtn.classList.add('hidden');
+        return;
+    }
+
+    header.classList.remove('hidden');
+    sidebar.classList.remove('hidden');
+}
+
+function setDetailedView(enabled) {
+    if (enabled === isDetailedView) {
+        syncDetailedViewUi();
+        return;
+    }
+
+    const expandBtn = document.getElementById('expand-sidebar-btn');
+    const sidebar = document.getElementById('discovery-sidebar');
+
+    if (enabled) {
+        sidebarWasCollapsedBeforeDetailed = !expandBtn.classList.contains('hidden');
+    }
+
+    isDetailedView = enabled;
+
+    if (backtestResults) {
+        showResultsPanel({ collapsed: enabled });
+    }
+
+    if (!enabled && !document.getElementById('discover-viz').classList.contains('hidden') && discoverResults?.followers?.length) {
+        sidebar.classList.remove('hidden');
+        if (sidebarWasCollapsedBeforeDetailed) {
+            collapseSidebar();
+        } else {
+            showSidebar();
+        }
+    }
+
+    syncDetailedViewUi();
 }
 
 function switchSidebarTab(tab) {
@@ -581,6 +660,7 @@ async function runBacktestFlow() {
         // Save to persistent history
         saveToHistory(backtestResults, discoverResults);
 
+        setDetailedView(true);
         showGraph();
         showResultsPanel();
         recomputeAndRender();
@@ -601,8 +681,16 @@ function showGraph() {
     document.getElementById('search-panel').classList.add('hidden');
 
     const vizContainer = document.getElementById('discover-viz');
+    if (graphRenderTimeout) {
+        clearTimeout(graphRenderTimeout);
+        graphRenderTimeout = null;
+    }
+    const renderToken = ++graphRenderToken;
+
     vizContainer.classList.remove('hidden');
     vizContainer.innerHTML = '';
+    vizContainer.style.background = '#f8fafc';
+    graphApi = null;
 
     document.getElementById('new-search-btn').classList.remove('hidden');
 
@@ -616,11 +704,18 @@ function showGraph() {
         categoryColorScale = d3.scaleOrdinal().domain(categories).range(d3.schemeTableau10);
     }
 
-    graphApi = initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
-        openRelationshipModal(edgeData, discoverResults.leader);
-    }, categoryColorScale);
-
     buildFollowerList();
+    syncDetailedViewUi();
+
+    graphRenderTimeout = setTimeout(() => {
+        if (renderToken !== graphRenderToken || vizContainer.classList.contains('hidden')) return;
+
+        graphApi = initDiscoverGraph(discoverResults, vizContainer, (edgeData) => {
+            openRelationshipModal(edgeData, discoverResults.leader);
+        }, categoryColorScale);
+
+        graphRenderTimeout = null;
+    }, 500);
 }
 
 
@@ -898,6 +993,7 @@ function restoreFromSession() {
 
     if (!discoverResults?.followers?.length) return;
 
+    setDetailedView(true);
     showGraph();
 
     if (backtestResults) {
@@ -981,6 +1077,7 @@ function loadFromHistory(entry) {
         searchMode: 'historical',
     }));
 
+    setDetailedView(true);
     showGraph();
     showResultsPanel();
     recomputeAndRender();
