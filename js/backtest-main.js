@@ -413,24 +413,31 @@ function buildFollowerList() {
 // Results Panel
 // ═══════════════════════════════════════════════════════════
 
-function showResultsPanel() {
+function syncResultsPanelToggleIcon() {
+    const icon = document.querySelector('#results-toggle-btn svg');
     const panel = document.getElementById('results-panel');
-    panel.classList.remove('hidden', 'collapsed');
+    if (!icon || !panel) return;
+    icon.style.transform = panel.classList.contains('collapsed') ? 'rotate(180deg)' : '';
+}
+
+function showResultsPanel({ collapsed = true } = {}) {
+    const panel = document.getElementById('results-panel');
+    panel.classList.remove('hidden');
+    panel.classList.toggle('collapsed', collapsed);
+    syncResultsPanelToggleIcon();
 }
 
 function hideResultsPanel() {
-    document.getElementById('results-panel').classList.add('hidden');
+    const panel = document.getElementById('results-panel');
+    panel.classList.add('hidden');
+    panel.classList.remove('collapsed');
+    syncResultsPanelToggleIcon();
 }
 
 function toggleResultsPanel() {
     const panel = document.getElementById('results-panel');
     panel.classList.toggle('collapsed');
-    const icon = document.querySelector('#results-toggle-btn svg');
-    if (panel.classList.contains('collapsed')) {
-        icon.style.transform = 'rotate(180deg)';
-    } else {
-        icon.style.transform = '';
-    }
+    syncResultsPanelToggleIcon();
 }
 
 
@@ -628,6 +635,16 @@ function formatPnl(val) {
     return { text: `${sign}${val.toFixed(1)}%`, cls };
 }
 
+function formatTimeframeLabel(tf) {
+    switch (tf) {
+        case '5m': return '5 min';
+        case '1h': return '1 hour';
+        case '1d': return '1 day';
+        case '1w': return '1 week';
+        default: return tf;
+    }
+}
+
 function recomputeAndRender() {
     if (!backtestResults) return;
 
@@ -645,15 +662,13 @@ function recomputeAndRender() {
     // Summary
     document.getElementById('summary-leader').textContent = backtestResults.leader.question;
     document.getElementById('summary-resolution').textContent = `Resolved: ${backtestResults.leader.resolution_time_formatted}`;
-
-    for (const tfKey of ['5m', '1h', '1d', '1w']) {
-        const pnls = filtered.map(t => t.pnl?.[tfKey]).filter(v => v != null);
-        const avg = pnls.length > 0 ? pnls.reduce((a, b) => a + b, 0) / pnls.length : null;
-        const el = document.getElementById(`summary-pnl-${tfKey}`);
-        const { text, cls } = formatPnl(avg);
-        el.textContent = text;
-        el.className = `text-lg font-bold ${cls}`;
-    }
+    document.getElementById('summary-timeframe-label').textContent = formatTimeframeLabel(tf);
+    const pnls = filtered.map(t => t.pnl?.[tf]).filter(v => v != null);
+    const avg = pnls.length > 0 ? pnls.reduce((a, b) => a + b, 0) / pnls.length : null;
+    const selectedPnlEl = document.getElementById('summary-pnl-selected');
+    const { text, cls } = formatPnl(avg);
+    selectedPnlEl.textContent = text;
+    selectedPnlEl.className = `text-lg font-bold ${cls}`;
 
     // Table
     renderTradesTable(filtered, tf);
