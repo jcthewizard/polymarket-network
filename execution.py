@@ -261,6 +261,11 @@ class TradingExecutor:
         tp_price, sl_price = self.calculate_exit_levels(price)
         size = round(amount_usdc / price, 2)
 
+        # Polymarket requires minimum 5 shares per order
+        if size < 5.0:
+            size = 5.0
+            amount_usdc = round(size * price, 2)
+
         position_id = f"{market_slug}_{outcome}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
 
         position = {
@@ -337,63 +342,80 @@ class TradingExecutor:
     # ------------------------------------------------------------------
     # Close position
     # ------------------------------------------------------------------
-    async def close_position(self, position_id: str, exit_price: float) -> Dict[str, Any]:
+    async def close_position(
+        self, position_id: str, exit_price: float, close_reason: str = "TIME_EXIT"
+    ) -> Dict[str, Any]:
         """
-        Close an open position by selling shares at *exit_price*.
+        Close an open position by posting a SELL GTC limit order at *exit_price*.
+
+        For live orders, the position moves to CLOSING (not CLOSED) — the fill
+        detection loop in autotrader will confirm the fill and compute realized P&L.
         """
         position = db.get_position(position_id)
         if position is None:
             logger.warning("Position %s not found — may already be closed.", position_id)
             return {"position_id": position_id, "status": "NOT_FOUND"}
 
-        if position["status"] in ("CLOSED", "DRY_RUN", "CLOSED_DRY"):
+        if position["status"] in ("CLOSED", "CLOSING", "DRY_RUN", "CLOSED_DRY"):
             logger.info("Position %s already %s — skipping.", position_id, position["status"])
             return position
 
         is_dry = self.dry_run
-        closed_at = datetime.now(timezone.utc).isoformat()
         close_order_id = None
 
         if is_dry:
             logger.info("DRY RUN — close NOT executed for %s", position_id)
             new_status = "CLOSED_DRY"
-        else:
-            if self.client is None:
-                raise RuntimeError("Cannot close live position: no private key.")
+            closed_at = datetime.now(timezone.utc).isoformat()
+            entry = position["entry_price"] or 0.0
+            realized_pnl = (exit_price - entry) * (position["size_shares"] or 0.0)
 
-            logger.info("Closing position %s (SELL %s shares @ %.4f)", position_id, position["size_shares"], exit_price)
+            db.update_position(position_id, {
+                "status": new_status,
+                "exit_price": exit_price,
+                "realized_pnl": round(realized_pnl, 6),
+                "closed_at": closed_at,
+                "close_reason": close_reason,
+            })
+            position["status"] = new_status
+            position["exit_price"] = exit_price
+            position["closed_at"] = closed_at
+            position["realized_pnl"] = round(realized_pnl, 6)
+            return position
 
-            order_args = OrderArgs(
-                token_id=position["token_id"],
-                price=exit_price,
-                size=position["size_shares"],
-                side=SELL,
-            )
-            signed = self.client.create_order(order_args)
-            response = self.client.post_order(signed, OrderType.GTC)
-            close_order_id = (
-                response.get("orderID") or response.get("id")
-                if isinstance(response, dict) else None
-            )
-            new_status = "CLOSED"
-            logger.info("Position closed: %s", response)
+        # Live order — post SELL and move to CLOSING
+        if self.client is None:
+            raise RuntimeError("Cannot close live position: no private key.")
 
-        # Compute realized PnL
-        entry = position["entry_price"] or 0.0
-        realized_pnl = (exit_price - entry) * (position["size_shares"] or 0.0)
+        logger.info(
+            "Closing position %s (SELL %s shares @ %.4f, reason=%s)",
+            position_id, position["size_shares"], exit_price, close_reason,
+        )
 
+        order_args = OrderArgs(
+            token_id=position["token_id"],
+            price=exit_price,
+            size=position["size_shares"],
+            side=SELL,
+        )
+        signed = self.client.create_order(order_args)
+        response = self.client.post_order(signed, OrderType.GTC)
+        close_order_id = (
+            response.get("orderID") or response.get("id")
+            if isinstance(response, dict) else None
+        )
+        logger.info("Sell order posted (CLOSING): %s", response)
+
+        # Move to CLOSING — do NOT compute P&L yet (fill detection will do that)
         db.update_position(position_id, {
-            "status": new_status,
-            "exit_price": exit_price,
+            "status": "CLOSING",
             "close_order_id": close_order_id,
-            "realized_pnl": round(realized_pnl, 6),
-            "closed_at": closed_at,
+            "close_reason": close_reason,
         })
 
-        position["status"] = new_status
-        position["exit_price"] = exit_price
-        position["closed_at"] = closed_at
-        position["realized_pnl"] = round(realized_pnl, 6)
+        position["status"] = "CLOSING"
+        position["close_order_id"] = close_order_id
+        position["close_reason"] = close_reason
         return position
 
     # ------------------------------------------------------------------
@@ -440,6 +462,11 @@ class TradingExecutor:
 
         tp_price, sl_price = self.calculate_exit_levels(price)
         size = round(amount_usdc / price, 2)
+
+        # Polymarket requires minimum 5 shares per order
+        if size < 5.0:
+            size = 5.0
+            amount_usdc = round(size * price, 2)
 
         position_id = f"{market_slug}_{outcome}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
 

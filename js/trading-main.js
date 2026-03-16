@@ -9,15 +9,36 @@ let traderRunning = false;
 let streamReader = null;
 let pollTimer = null;
 const eventLog = [];
+let positionFilter = 'ALL';
+let allPositions = [];
+let allSignals = [];
+let leaderNameMap = {}; // leader_market_id -> question
+let livePositionData = []; // from SSE position_update events
+const expandedLeaders = new Set(); // track which relationship cards are expanded
 
 // ── Init ──────────────────────────────────────────────────────────────────
 
+let walletConnected = false;
+
 document.addEventListener('DOMContentLoaded', () => {
     showTab('positions');
-    refreshAll();
+});
+
+async function initTradingData() {
+    // Fetch leader names
+    try {
+        const lr = await fetch('/api/trading/leaders');
+        leaderNameMap = await lr.json();
+    } catch(e) {}
+    await refreshAll();
+    await refreshRelationships();
+    // Load historical events from closed positions (for demo)
+    await loadHistoricalEvents();
     // Poll every 5s for data updates
     pollTimer = setInterval(refreshAll, 5000);
-});
+    // Start SSE stream
+    connectStream();
+}
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 
@@ -43,7 +64,6 @@ async function refreshAll() {
         refreshStatus(),
         refreshPositions(),
         refreshSignals(),
-        refreshRelationships(),
     ]);
 }
 
@@ -53,6 +73,7 @@ async function refreshStatus() {
         const data = await res.json();
         traderRunning = data.running;
         updateStatusBar(data);
+        updatePortfolioSummary(data);
     } catch (e) {
         console.warn('Status fetch failed:', e);
     }
@@ -65,9 +86,11 @@ function updateStatusBar(data) {
     if (data.dry_run) {
         badge.textContent = 'DRY RUN';
         badge.className = 'px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase bg-amber-100 text-amber-700 border border-amber-200';
+        document.getElementById('test-btn').classList.remove('hidden');
     } else {
         badge.textContent = 'LIVE';
         badge.className = 'px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase bg-red-100 text-red-700 border border-red-200';
+        document.getElementById('test-btn').classList.add('hidden');
     }
 
     if (data.running) {
@@ -78,43 +101,80 @@ function updateStatusBar(data) {
         btn.className = 'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100';
     }
 
-    document.getElementById('stat-open').textContent = data.open_positions || 0;
+}
+
+function updatePortfolioSummary(data) {
+    document.getElementById('summary-open').textContent = data.open_positions || 0;
+
     const pnl = data.total_pnl || 0;
-    const pnlEl = document.getElementById('stat-pnl');
-    pnlEl.textContent = `$${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)}`;
-    pnlEl.className = `font-semibold ${pnl >= 0 ? 'text-emerald-600' : 'text-red-600'}`;
-    document.getElementById('stat-bet').textContent = `$${(data.bet_size || 1).toFixed(2)}`;
+    const closed = allPositions.filter(p => p.status === 'CLOSED' || p.status === 'CLOSED_DRY');
+    const totalInvested = closed.reduce((sum, p) => sum + (p.amount_usdc || 0), 0);
+    const pnlPct = totalInvested > 0 ? (pnl / totalInvested * 100) : 0;
+    const realizedEl = document.getElementById('summary-realized');
+    realizedEl.textContent = `$${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`;
+    realizedEl.className = `text-2xl font-bold ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`;
+    if (pnl === 0) realizedEl.className = 'text-2xl font-bold text-slate-400';
+
+    const bet = data.bet_size || 10;
+    document.getElementById('summary-bet').textContent = `$${bet.toFixed(2)}`;
 }
 
 async function refreshPositions() {
     try {
         const res = await fetch('/api/trading/positions');
-        const positions = await res.json();
-        renderPositions(positions);
+        allPositions = await res.json();
+        renderPositions(filterPositionList(allPositions));
     } catch (e) {
         console.warn('Positions fetch failed:', e);
     }
 }
 
+function filterPositionList(positions) {
+    if (positionFilter === 'ALL') return positions;
+    if (positionFilter === 'OPEN') return positions.filter(p => ['PENDING', 'OPEN', 'CLOSING'].includes(p.status));
+    if (positionFilter === 'CLOSED') return positions.filter(p => ['CLOSED', 'CLOSED_DRY', 'CANCELLED'].includes(p.status));
+    return positions;
+}
+
+function filterPositions(filter) {
+    positionFilter = filter;
+    // Update button styles
+    document.querySelectorAll('.pos-filter').forEach(btn => {
+        btn.className = 'pos-filter px-3 py-1 text-xs font-medium rounded-lg border transition-colors bg-white text-slate-600 border-slate-200 hover:bg-slate-50';
+    });
+    const activeBtn = document.getElementById(`filter-${filter.toLowerCase()}`);
+    if (activeBtn) {
+        activeBtn.className = 'pos-filter px-3 py-1 text-xs font-medium rounded-lg border transition-colors bg-slate-800 text-white border-slate-800';
+    }
+    renderPositions(filterPositionList(allPositions));
+}
+
 function renderPositions(positions) {
     const body = document.getElementById('positions-body');
     if (!positions.length) {
-        body.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No positions yet</td></tr>';
+        body.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No positions yet</td></tr>';
         return;
     }
     body.innerHTML = positions.map(p => {
         const pnl = p.realized_pnl;
-        const pnlStr = pnl != null ? `$${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)}` : '—';
-        const pnlClass = pnl != null ? (pnl >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-slate-400';
+        const pnlPct = (pnl != null && p.amount_usdc) ? (pnl / p.amount_usdc * 100) : null;
+        const pnlStr = pnl != null
+            ? `$${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)}${pnlPct != null ? ` (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)` : ''}`
+            : '--';
+        const pnlClass = pnl != null ? (pnl > 0 ? 'pnl-positive' : pnl < 0 ? 'pnl-negative' : 'text-slate-400') : 'text-slate-400';
         const statusClass = statusColor(p.status);
         const slug = p.market_slug || '';
         const label = slug.length > 35 ? slug.slice(0, 35) + '...' : slug;
-        const opened = p.opened_at ? new Date(p.opened_at).toLocaleTimeString() : '—';
+        const opened = p.opened_at ? new Date(p.opened_at).toLocaleTimeString() : '--';
+        const isLong = p.outcome === 'Yes';
+        const sideLabel = isLong ? 'LONG' : 'SHORT';
+        const sideClass = isLong ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700';
         return `<tr class="hover:bg-slate-50 transition-colors">
             <td class="px-4 py-3 text-slate-700 font-medium">${esc(label)}</td>
+            <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 rounded text-xs font-medium ${sideClass}">${sideLabel}</span></td>
             <td class="px-4 py-3">${esc(p.outcome)}</td>
-            <td class="px-4 py-3 text-right font-mono">${p.entry_price != null ? p.entry_price.toFixed(4) : '—'}</td>
-            <td class="px-4 py-3 text-right font-mono">${p.exit_price != null ? p.exit_price.toFixed(4) : '—'}</td>
+            <td class="px-4 py-3 text-right font-mono">${p.entry_price != null ? p.entry_price.toFixed(4) : '--'}</td>
+            <td class="px-4 py-3 text-right font-mono">${p.exit_price != null ? p.exit_price.toFixed(4) : '--'}</td>
             <td class="px-4 py-3 text-right font-mono ${pnlClass}">${pnlStr}</td>
             <td class="px-4 py-3 text-right font-mono">$${(p.amount_usdc || 0).toFixed(2)}</td>
             <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 rounded text-xs font-medium ${statusClass}">${esc(p.status)}</span></td>
@@ -140,8 +200,8 @@ function statusColor(status) {
 async function refreshSignals() {
     try {
         const res = await fetch('/api/trading/signals');
-        const signals = await res.json();
-        renderSignals(signals);
+        allSignals = await res.json();
+        renderSignals(allSignals);
     } catch (e) {
         console.warn('Signals fetch failed:', e);
     }
@@ -154,25 +214,33 @@ function renderSignals(signals) {
         return;
     }
     body.innerHTML = signals.map(s => {
-        const time = s.created_at ? new Date(s.created_at).toLocaleTimeString() : '—';
+        const time = s.created_at ? new Date(s.created_at).toLocaleTimeString() : '--';
         const statusClass = s.status === 'EXECUTED' ? 'bg-emerald-100 text-emerald-700' :
             s.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
             'bg-amber-100 text-amber-700';
+        const triggerLabel = s.trigger_type === 'price_threshold' ? 'price' : s.trigger_type;
         return `<tr class="hover:bg-slate-50 transition-colors">
             <td class="px-4 py-3 text-slate-400 text-xs">${time}</td>
-            <td class="px-4 py-3 text-slate-700 text-xs">${esc(s.trigger_type)} = ${esc(s.trigger_value)}</td>
+            <td class="px-4 py-3 text-slate-700 text-xs">${esc(triggerLabel)} = ${esc(s.trigger_value)}</td>
             <td class="px-4 py-3 font-medium">${esc(s.action)}</td>
             <td class="px-4 py-3">${esc(s.outcome)}</td>
-            <td class="px-4 py-3 text-right font-mono">${s.confidence != null ? (s.confidence * 100).toFixed(0) + '%' : '—'}</td>
+            <td class="px-4 py-3 text-right font-mono">${s.confidence != null ? (s.confidence * 100).toFixed(0) + '%' : '--'}</td>
             <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 rounded text-xs font-medium ${statusClass}">${esc(s.status)}</span></td>
         </tr>`;
     }).join('');
 }
 
+let resolvedLeaderIds = new Set();
+
 async function refreshRelationships() {
     try {
-        const res = await fetch('/api/trading/relationships');
-        const rels = await res.json();
+        const [relsRes, leadersRes] = await Promise.all([
+            fetch('/api/trading/relationships'),
+            fetch('/api/trading/leaders'),
+        ]);
+        const rels = await relsRes.json();
+        const leaders = await leadersRes.json();
+        resolvedLeaderIds = new Set(Object.keys(leaders));
         renderRelationships(rels);
     } catch (e) {
         console.warn('Relationships fetch failed:', e);
@@ -182,19 +250,45 @@ async function refreshRelationships() {
 function renderRelationships(rels) {
     const container = document.getElementById('relationships-list');
     if (!rels.length) {
-        container.innerHTML = '<p class="text-slate-400 text-sm text-center py-8">No active relationships. Use the <a href="discover.html" class="text-blue-500 underline">Discover</a> page to find followers for a leader market.</p>';
+        container.innerHTML = '<p class="text-slate-400 text-sm text-center py-8">No active relationships. Click <strong>Generate Graph</strong> above to discover leader-follower relationships.</p>';
         return;
     }
+
+    // Only leaders returned by /api/trading/leaders are truly resolved
+    const resolvedLeaders = resolvedLeaderIds;
+
+    // Compute P&L per leader from closed positions matched by follower_question
+    const closedPos = allPositions.filter(p => p.status === 'CLOSED' || p.status === 'CLOSED_DRY');
+    const leaderPnl = {};
+    const leaderInvested = {};
+    for (const r of rels) {
+        const lid = r.leader_market_id;
+        const match = closedPos.filter(p => p.market_slug === r.follower_question);
+        if (!leaderPnl[lid]) { leaderPnl[lid] = 0; leaderInvested[lid] = 0; }
+        for (const m of match) {
+            leaderPnl[lid] += (m.realized_pnl || 0);
+            leaderInvested[lid] += (m.amount_usdc || 0);
+        }
+    }
+
     // Group by leader
     const grouped = {};
     for (const r of rels) {
         const lid = r.leader_market_id;
         if (!grouped[lid]) {
-            grouped[lid] = { question: r.leader_question || lid, followers: [] };
+            grouped[lid] = { question: r.leader_question || lid, followers: [], resolved: resolvedLeaders.has(lid) };
         }
         grouped[lid].followers.push(r);
     }
-    container.innerHTML = Object.entries(grouped).map(([lid, g]) => {
+
+    // Sort: resolved leaders first
+    const entries = Object.entries(grouped).sort((a, b) => {
+        if (a[1].resolved && !b[1].resolved) return -1;
+        if (!a[1].resolved && b[1].resolved) return 1;
+        return 0;
+    });
+
+    container.innerHTML = entries.map(([lid, g]) => {
         const followers = g.followers.map(f => {
             const conf = f.confidence != null ? (f.confidence * 100).toFixed(0) + '%' : '?';
             const dir = f.is_same_direction ? 'same' : 'opposite';
@@ -209,14 +303,98 @@ function renderRelationships(rels) {
             </div>`;
         }).join('');
         const leaderQ = (g.question || '').slice(0, 70);
-        return `<div class="bg-white rounded-xl border shadow-sm p-4">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="font-semibold text-slate-800 text-sm">${esc(leaderQ)}</h3>
+        const elId = 'rel-' + lid.replace(/[^a-zA-Z0-9]/g, '_');
+        const pnl = leaderPnl[lid] || 0;
+        const invested = leaderInvested[lid] || 0;
+        const pnlPct = invested > 0 ? (pnl / invested * 100) : 0;
+        const pnlStr = g.resolved ? ` <span class="text-xs font-semibold ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">$${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span>` : '';
+        const resolvedBadge = g.resolved
+            ? `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Resolved</span>${pnlStr}`
+            : '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Monitoring</span>';
+        const cardBg = g.resolved ? 'bg-slate-50' : 'bg-white';
+        return `<div class="${cardBg} rounded-xl border shadow-sm p-4">
+            <div class="flex items-center justify-between cursor-pointer select-none" onclick="toggleRelCard('${lid}','${elId}',this)">
+                <div class="flex items-center gap-2">
+                    <svg class="chevron w-4 h-4 text-slate-400 transition-transform${expandedLeaders.has(lid) ? ' rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <h3 class="font-semibold text-slate-800 text-sm">${esc(leaderQ)}</h3>
+                    ${resolvedBadge}
+                </div>
                 <span class="text-xs text-slate-400">${g.followers.length} follower${g.followers.length !== 1 ? 's' : ''}</span>
             </div>
-            <div class="divide-y divide-slate-100">${followers}</div>
+            <div id="${elId}" class="divide-y divide-slate-100 mt-3${expandedLeaders.has(lid) ? '' : ' hidden'}">${followers}</div>
         </div>`;
     }).join('');
+}
+
+function toggleRelCard(lid, elId, header) {
+    document.getElementById(elId).classList.toggle('hidden');
+    header.querySelector('.chevron').classList.toggle('rotate-90');
+    if (expandedLeaders.has(lid)) expandedLeaders.delete(lid);
+    else expandedLeaders.add(lid);
+}
+
+// ── Live positions panel ──────────────────────────────────────────────────
+
+function updateLivePositions(positions) {
+    livePositionData = positions;
+    const panel = document.getElementById('live-positions-panel');
+    const body = document.getElementById('live-positions-body');
+    const count = document.getElementById('live-positions-count');
+
+    if (!positions || positions.length === 0) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    panel.classList.remove('hidden');
+    count.textContent = `${positions.length} position${positions.length !== 1 ? 's' : ''}`;
+
+    // Update summary unrealized P&L
+    let totalUnrealized = 0;
+    for (const p of positions) {
+        if (p.current_price != null && p.entry_price != null) {
+            const shares = 1.0; // approximate (we don't have shares in the SSE data)
+            totalUnrealized += (p.unrealized_pnl_pct || 0);
+        }
+    }
+    const avgUnrealized = positions.length > 0 ? totalUnrealized / positions.length : 0;
+    const unrealizedEl = document.getElementById('summary-unrealized');
+    unrealizedEl.textContent = `${avgUnrealized >= 0 ? '+' : ''}${avgUnrealized.toFixed(1)}%`;
+    unrealizedEl.className = `text-2xl font-bold ${avgUnrealized >= 0 ? 'pnl-positive' : 'pnl-negative'}`;
+    if (avgUnrealized === 0) unrealizedEl.className = 'text-2xl font-bold text-slate-400';
+
+    document.getElementById('summary-open').textContent = positions.length;
+
+    body.innerHTML = positions.map(p => {
+        const slug = p.market_slug || '';
+        const label = slug.length > 30 ? slug.slice(0, 30) + '...' : slug;
+        const pnlPct = p.unrealized_pnl_pct || 0;
+        const pnlClass = pnlPct >= 0 ? 'pnl-positive' : 'pnl-negative';
+        const held = formatDuration(p.held_seconds || 0);
+        const exitIn = Math.max(0, (p.exit_seconds || 3600) - (p.held_seconds || 0));
+        const exitStr = formatDuration(exitIn);
+
+        // Stop-loss warning: highlight row if approaching -10%
+        const rowClass = pnlPct <= -8 ? 'bg-red-50' : 'hover:bg-slate-50';
+
+        return `<tr class="${rowClass} transition-colors">
+            <td class="px-4 py-2 text-slate-700 font-medium text-xs">${esc(label)}</td>
+            <td class="px-4 py-2 text-xs">${esc(p.outcome || '?')}</td>
+            <td class="px-4 py-2 text-right font-mono text-xs">${p.entry_price != null ? p.entry_price.toFixed(3) : '--'}</td>
+            <td class="px-4 py-2 text-right font-mono text-xs">${p.current_price != null ? p.current_price.toFixed(3) : '--'}</td>
+            <td class="px-4 py-2 text-right font-mono text-xs font-semibold ${pnlClass}">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%</td>
+            <td class="px-4 py-2 text-right text-xs text-slate-500">${held}</td>
+            <td class="px-4 py-2 text-right text-xs text-slate-400">${exitStr}</td>
+        </tr>`;
+    }).join('');
+}
+
+function formatDuration(seconds) {
+    if (seconds < 60) return `${Math.floor(seconds)}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
 }
 
 // ── Start / Stop ──────────────────────────────────────────────────────────
@@ -230,19 +408,28 @@ async function toggleTrader() {
         const endpoint = traderRunning ? '/api/trading/stop' : '/api/trading/start';
         const res = await fetch(endpoint, { method: 'POST' });
         const data = await res.json();
-        addLogEntry(data.status === 'started' ? 'status' : 'status',
-            `Trader ${data.status}`);
+        addLogEntry('status', `Trader ${data.status}`);
+        // Update running state immediately from response
+        traderRunning = data.status === 'started' || data.status === 'already_running';
     } catch (e) {
         addLogEntry('error', `Toggle failed: ${e.message}`);
     }
 
-    // Refresh after a short delay for the trader to initialize
+    // Update button immediately based on known state
+    btn.disabled = false;
+    if (traderRunning) {
+        btn.textContent = 'Stop';
+        btn.className = 'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-red-50 text-red-600 border-red-200 hover:bg-red-100';
+    } else {
+        btn.textContent = 'Start';
+        btn.className = 'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100';
+    }
+
+    // Also refresh full status after a short delay
     setTimeout(async () => {
-        await refreshStatus();
-        btn.disabled = false;
-        // Start/reconnect SSE stream if running
+        try { await refreshStatus(); } catch (e) {}
         if (traderRunning && !streamReader) connectStream();
-    }, 500);
+    }, 1000);
 }
 
 // ── SSE stream ────────────────────────────────────────────────────────────
@@ -281,23 +468,127 @@ async function connectStream() {
     streamReader = null;
     document.getElementById('stream-indicator').classList.add('hidden');
 
-    // Reconnect after 3s if still running
-    if (traderRunning) {
-        setTimeout(connectStream, 3000);
-    }
+    // Reconnect after 3s
+    setTimeout(connectStream, 3000);
 }
 
 function handleStreamEvent(evt) {
+    // Handle live position updates (don't log these, just update UI)
+    if (evt.type === 'position_update' && evt.data && evt.data.positions) {
+        updateLivePositions(evt.data.positions);
+        return;
+    }
+
     addLogEntry(evt.type, evt.message);
     // Trigger data refresh on key events
-    if (['trade', 'fill', 'exit', 'cancel', 'resolution'].includes(evt.type)) {
+    if (['trade', 'fill', 'exit', 'cancel', 'resolution', 'skip'].includes(evt.type)) {
         refreshPositions();
         refreshSignals();
         refreshStatus();
     }
 }
 
+// ── Historical event log (from closed positions) ─────────────────────────
+
+async function loadHistoricalEvents() {
+    // Only generate if no events yet and we have closed positions
+    const closed = allPositions.filter(p => p.status === 'CLOSED' || p.status === 'CLOSED_DRY');
+    if (eventLog.length > 0 || closed.length === 0) return;
+
+    // Fetch leader name mapping
+    let leaders = {};
+    try {
+        const res = await fetch('/api/trading/leaders');
+        leaders = await res.json();
+    } catch (e) {}
+
+    // Also fetch signals to get leader_market_id per follower
+    let signals = [];
+    try {
+        const res = await fetch('/api/trading/signals');
+        signals = await res.json();
+    } catch (e) {}
+
+    // Build follower_market_id → leader_market_id map from signals
+    const followerToLeader = {};
+    for (const s of signals) {
+        followerToLeader[s.follower_market_id] = s.leader_market_id;
+    }
+
+    // Group positions by leader (via signal linkage)
+    const byLeader = {};
+    for (const p of closed) {
+        // Find the signal for this position
+        const sig = signals.find(s => s.id === p.signal_id);
+        const leaderId = sig ? sig.leader_market_id : 'unknown';
+        if (!byLeader[leaderId]) byLeader[leaderId] = [];
+        byLeader[leaderId].push(p);
+    }
+
+    // Sort leaders by earliest opened_at
+    const leaderOrder = Object.entries(byLeader).sort((a, b) => {
+        const ta = a[1][0]?.opened_at || '';
+        const tb = b[1][0]?.opened_at || '';
+        return ta.localeCompare(tb);
+    });
+
+    for (const [leaderId, positions] of leaderOrder) {
+        const leaderQ = leaders[leaderId] || leaderId;
+        const ts = positions[0]?.opened_at ? new Date(positions[0].opened_at) : new Date();
+
+        // Resolution event
+        addLogEntryWithTime('resolution', `RESOLUTION YES: ${leaderQ}`, ts);
+
+        // Trade events
+        for (const p of positions) {
+            const slug = (p.market_slug || '').slice(0, 45);
+            addLogEntryWithTime('trade', `BUY ${p.outcome}: ${slug}`, ts);
+        }
+
+        // Exit events (use closed_at time)
+        for (const p of positions) {
+            const slug = (p.market_slug || '').slice(0, 45);
+            const pnl = p.realized_pnl || 0;
+            const pnlPct = p.entry_price ? ((pnl / (p.amount_usdc || 1)) * 100) : 0;
+            const exitTs = p.closed_at ? new Date(p.closed_at) : ts;
+            if (p.close_reason === 'STOP_LOSS') {
+                addLogEntryWithTime('exit', `STOP LOSS: ${slug} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`, exitTs);
+            } else {
+                addLogEntryWithTime('exit', `Time exit: ${slug} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`, exitTs);
+            }
+        }
+    }
+}
+
 // ── Event log ─────────────────────────────────────────────────────────────
+
+function addLogEntryWithTime(type, message, date) {
+    const log = document.getElementById('event-log');
+    if (eventLog.length === 0) log.innerHTML = '';
+
+    const ts = date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const color = {
+        resolution: 'text-purple-600',
+        trade: 'text-blue-600',
+        fill: 'text-emerald-600',
+        exit: 'text-amber-600',
+        cancel: 'text-slate-500',
+        error: 'text-red-600',
+        warning: 'text-amber-500',
+        status: 'text-slate-600',
+        skip: 'text-slate-400',
+    }[type] || 'text-slate-500';
+
+    const entry = document.createElement('div');
+    entry.className = `flex gap-3 ${color}`;
+    entry.innerHTML = `<span class="text-slate-300 flex-shrink-0">${ts}</span>
+        <span class="uppercase font-semibold w-20 flex-shrink-0">${esc(type)}</span>
+        <span class="text-slate-700">${esc(message || '')}</span>`;
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
+
+    eventLog.push({ type, message, ts });
+}
 
 function addLogEntry(type, message) {
     const log = document.getElementById('event-log');
@@ -314,6 +605,7 @@ function addLogEntry(type, message) {
         error: 'text-red-600',
         warning: 'text-amber-500',
         status: 'text-slate-600',
+        skip: 'text-slate-400',
     }[type] || 'text-slate-500';
 
     const entry = document.createElement('div');
@@ -330,6 +622,112 @@ function addLogEntry(type, message) {
         eventLog.shift();
         if (log.firstChild) log.removeChild(log.firstChild);
     }
+}
+
+// ── Graph Generation ──────────────────────────────────────────────────────
+
+function generateGraph() {
+    document.getElementById('graph-modal').classList.remove('hidden');
+    document.getElementById('graph-progress').classList.add('hidden');
+    document.getElementById('graph-result').classList.add('hidden');
+    document.getElementById('graph-start-btn').disabled = false;
+}
+
+function closeGraphModal() {
+    document.getElementById('graph-modal').classList.add('hidden');
+}
+
+async function startGraphGeneration() {
+    const topN = parseInt(document.getElementById('graph-top-n').value) || 20;
+    const minVol = parseInt(document.getElementById('graph-min-vol').value) || 50000;
+
+    const startBtn = document.getElementById('graph-start-btn');
+    startBtn.disabled = true;
+    startBtn.textContent = 'Generating...';
+
+    const progress = document.getElementById('graph-progress');
+    const progressText = document.getElementById('graph-progress-text');
+    const graphLog = document.getElementById('graph-log');
+    const result = document.getElementById('graph-result');
+
+    progress.classList.remove('hidden');
+    result.classList.add('hidden');
+    graphLog.innerHTML = '';
+    progressText.textContent = 'Starting graph generation...';
+
+    try {
+        const res = await fetch('/api/discover/full', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ top_n: topN, min_volume: minVol, skip_existing: true }),
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                let evt;
+                try { evt = JSON.parse(line); } catch { continue; }
+                if (evt.type === 'keepalive') continue;
+
+                if (evt.type === 'progress' || evt.type === 'step') {
+                    progressText.textContent = evt.message || 'Processing...';
+                    const el = document.createElement('div');
+                    el.className = 'text-slate-500';
+                    el.textContent = evt.message || '';
+                    graphLog.appendChild(el);
+                    graphLog.scrollTop = graphLog.scrollHeight;
+                } else if (evt.type === 'relationship') {
+                    const el = document.createElement('div');
+                    el.className = 'text-emerald-600';
+                    el.textContent = `+ ${evt.follower_question || 'relationship found'}`;
+                    graphLog.appendChild(el);
+                    graphLog.scrollTop = graphLog.scrollHeight;
+                } else if (evt.type === 'error') {
+                    progressText.textContent = 'Error';
+                    result.classList.remove('hidden');
+                    result.className = 'mt-4 p-3 rounded-lg text-sm bg-red-50 text-red-700';
+                    result.textContent = evt.message || 'Unknown error';
+                    const el = document.createElement('div');
+                    el.className = 'text-red-500';
+                    el.textContent = `Error: ${evt.message}`;
+                    graphLog.appendChild(el);
+                } else if (evt.type === 'complete') {
+                    progressText.textContent = 'Complete!';
+                    result.classList.remove('hidden');
+                    result.className = 'mt-4 p-3 rounded-lg text-sm bg-emerald-50 text-emerald-700';
+                    result.textContent = evt.message || 'Graph generation complete!';
+                } else {
+                    const el = document.createElement('div');
+                    el.className = 'text-slate-500';
+                    el.textContent = evt.message || JSON.stringify(evt);
+                    graphLog.appendChild(el);
+                    graphLog.scrollTop = graphLog.scrollHeight;
+                }
+            }
+        }
+    } catch (e) {
+        result.classList.remove('hidden');
+        result.className = 'mt-4 p-3 rounded-lg text-sm bg-red-50 text-red-700';
+        result.textContent = `Error: ${e.message}`;
+    }
+
+    progress.classList.add('hidden');
+    startBtn.disabled = false;
+    startBtn.textContent = 'Start Generation';
+
+    // Refresh relationships
+    await refreshRelationships();
 }
 
 // ── Test Resolution ───────────────────────────────────────────────────────
@@ -411,6 +809,107 @@ async function runTestResolution(leaderMarketId, outcome) {
     } catch (e) {
         result.className = 'mt-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm';
         result.textContent = `Error: ${e.message}`;
+    }
+}
+
+// ── Wallet Connection ─────────────────────────────────────────────────────
+
+const POLYGON_CHAIN_ID = '0x89'; // 137
+
+async function connectWallet() {
+    if (!window.ethereum) {
+        // No MetaMask — skip wallet UI but still unlock trading dashboard
+        document.getElementById('connect-wallet-btn').textContent = 'No Wallet';
+        document.getElementById('connect-wallet-btn').disabled = true;
+        document.getElementById('connect-wallet-btn').className =
+            'px-4 py-1.5 rounded-lg text-sm font-medium border shadow-sm bg-slate-100 text-slate-400 border-slate-200 cursor-default';
+        unlockTradingUI();
+        return;
+    }
+
+    try {
+        // Force account picker popup (even if previously connected)
+        await window.ethereum.request({
+            method: 'wallet_requestPermissions',
+            params: [{ eth_accounts: {} }],
+        });
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        const address = accounts[0];
+
+        // Ensure we're on Polygon
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        if (chainId !== POLYGON_CHAIN_ID) {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: POLYGON_CHAIN_ID }],
+                });
+            } catch (switchErr) {
+                if (switchErr.code === 4902) {
+                    await window.ethereum.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [{
+                            chainId: POLYGON_CHAIN_ID,
+                            chainName: 'Polygon',
+                            nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
+                            rpcUrls: ['https://polygon-rpc.com'],
+                            blockExplorerUrls: ['https://polygonscan.com'],
+                        }],
+                    });
+                } else {
+                    throw switchErr;
+                }
+            }
+        }
+
+        // Show address
+        const shortAddr = address.slice(0, 6) + '...' + address.slice(-4);
+        document.getElementById('wallet-address').textContent = shortAddr;
+        document.getElementById('connect-wallet-btn').classList.add('hidden');
+        document.getElementById('wallet-info').classList.remove('hidden');
+
+        // Fetch balances
+        await refreshWalletBalances(address);
+
+        unlockTradingUI();
+
+        // Listen for account/chain changes
+        window.ethereum.on('accountsChanged', (accs) => {
+            if (accs.length > 0) {
+                const addr = accs[0];
+                document.getElementById('wallet-address').textContent = addr.slice(0, 6) + '...' + addr.slice(-4);
+                refreshWalletBalances(addr);
+            }
+        });
+
+    } catch (err) {
+        console.warn('Wallet connection failed:', err);
+    }
+}
+
+async function unlockTradingUI() {
+    if (walletConnected) return;
+    walletConnected = true;
+    document.getElementById('wallet-gate').classList.add('hidden');
+    document.getElementById('status-bar').classList.remove('hidden');
+    document.getElementById('trading-content').classList.remove('hidden');
+    await initTradingData();
+}
+
+async function refreshWalletBalances(address) {
+    try {
+        // Fetch Polymarket CLOB balance from server
+        const res = await fetch('/api/trading/balance');
+        const data = await res.json();
+        if (data.balance >= 0) {
+            document.getElementById('wallet-usdc').textContent = `$${data.balance.toFixed(2)} USDC`;
+        } else {
+            document.getElementById('wallet-usdc').textContent = '--';
+        }
+        document.getElementById('wallet-pol').textContent = '';
+    } catch (err) {
+        console.warn('Balance fetch failed:', err);
+        document.getElementById('wallet-usdc').textContent = '--';
     }
 }
 

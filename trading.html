@@ -9,49 +9,42 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     <style>
+        body { overflow: auto !important; }
         @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .live-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+        .pnl-positive { color: #059669; }
+        .pnl-negative { color: #dc2626; }
     </style>
 </head>
 
 <body class="bg-slate-50 font-[Inter] min-h-screen">
 
     <!-- Header -->
-    <header class="fixed top-0 left-0 right-0 z-40 px-4 md:px-6 pt-4 md:pt-6 pointer-events-none">
-        <div class="flex justify-between items-start pointer-events-auto">
-            <div>
-                <div class="flex items-center gap-3">
-                    <a href="index.html"
-                        class="text-slate-400 hover:text-slate-600 transition-colors text-sm flex items-center gap-1">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M15 19l-7-7 7-7" />
-                        </svg>
-                        Network
-                    </a>
-                    <span class="text-slate-300">|</span>
-                    <a href="discover.html"
-                        class="text-slate-400 hover:text-slate-600 transition-colors text-sm">
-                        Discover
-                    </a>
-                    <span class="text-slate-300">|</span>
-                    <a href="backtest.html"
-                        class="text-slate-400 hover:text-slate-600 transition-colors text-sm">
-                        Backtest
-                    </a>
-                </div>
-                <h1 class="text-xl md:text-3xl font-bold text-slate-900 tracking-tight mt-1">Autotrader</h1>
-                <p class="text-slate-500 text-xs md:text-sm mt-1">Live Trading Dashboard</p>
-            </div>
+    <header class="fixed top-0 left-0 right-0 z-40 bg-slate-50/90 backdrop-blur-sm border-b border-slate-200 px-4 md:px-6 py-3 pointer-events-none">
+        <div class="flex items-center gap-4 max-w-7xl mx-auto pointer-events-auto">
+            <a href="index.html"
+                class="text-slate-400 hover:text-slate-600 transition-colors text-sm flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15 19l-7-7 7-7" />
+                </svg>
+            </a>
+            <h1 class="text-lg font-semibold text-slate-900 tracking-tight">Autotrader</h1>
+            <span class="text-slate-300">|</span>
+            <nav class="flex items-center gap-3 text-sm">
+                <a href="index.html" class="text-slate-400 hover:text-slate-600 transition-colors">Network</a>
+                <a href="discover.html" class="text-slate-400 hover:text-slate-600 transition-colors">Discover</a>
+                <a href="backtest.html" class="text-slate-400 hover:text-slate-600 transition-colors">Backtest</a>
+            </nav>
         </div>
     </header>
 
     <!-- Main content -->
-    <main class="pt-28 px-4 md:px-6 pb-8 max-w-7xl mx-auto">
+    <main class="pt-16 px-4 md:px-6 pb-24 max-w-7xl mx-auto">
 
-        <!-- Status bar -->
+        <!-- Status bar (inside trading-content, hidden until wallet connected) -->
         <div id="status-bar"
-            class="flex flex-wrap items-center gap-4 p-4 rounded-xl border shadow-sm mb-6 bg-white">
+            class="flex flex-wrap items-center gap-4 p-4 rounded-xl border shadow-sm mb-4 bg-white hidden">
             <!-- Mode badge -->
             <div id="mode-badge" class="px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase">
                 ...
@@ -61,25 +54,101 @@
                 class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm">
                 Start
             </button>
+            <!-- Generate Graph button -->
+            <button id="graph-btn" onclick="generateGraph()"
+                class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100">
+                Generate Graph
+            </button>
             <!-- Test Resolution button -->
             <button id="test-btn" onclick="openTestModal()"
                 class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100">
                 Test Resolution
             </button>
-            <!-- Stats -->
-            <div class="flex items-center gap-6 ml-auto text-sm">
-                <div class="text-slate-500">
-                    Open: <span id="stat-open" class="font-semibold text-slate-800">0</span>
+            <!-- Wallet -->
+            <div class="flex items-center gap-4 ml-auto text-sm">
+                <div id="wallet-panel" class="flex items-center gap-3">
+                    <button id="connect-wallet-btn" onclick="connectWallet()"
+                        class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-slate-800 text-white hover:bg-slate-700">
+                        Connect Wallet
+                    </button>
+                    <div id="wallet-info" class="hidden flex items-center gap-3 text-xs">
+                        <span id="wallet-address" class="font-mono text-slate-500"></span>
+                        <span class="text-slate-300">|</span>
+                        <span id="wallet-usdc" class="font-bold text-slate-800"></span>
+                        <span id="wallet-pol"></span>
+                    </div>
                 </div>
-                <div class="text-slate-500">
-                    P&amp;L: <span id="stat-pnl" class="font-semibold">$0.00</span>
-                </div>
-                <div class="text-slate-500">
-                    Bet: <span id="stat-bet" class="font-semibold text-slate-800">$1.00</span>
+                <div id="wallet-status" class="text-slate-400 text-xs hidden">
+                    <span id="wallet-icon" class="inline-block w-2 h-2 rounded-full bg-slate-300 mr-1"></span>
+                    <span id="wallet-label">No wallet</span>
                 </div>
                 <div id="stream-indicator" class="hidden">
                     <span class="live-dot inline-block w-2 h-2 rounded-full bg-green-500"></span>
                     <span class="text-xs text-slate-400 ml-1">LIVE</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wallet gate overlay -->
+        <div id="wallet-gate" class="flex flex-col items-center justify-center py-24 text-center">
+            <svg class="w-16 h-16 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+            </svg>
+            <h2 class="text-lg font-semibold text-slate-600 mb-2">Connect your wallet to view trading data</h2>
+            <p class="text-sm text-slate-400 mb-6">Positions, signals, and P&L will populate once connected.</p>
+            <button onclick="connectWallet()"
+                class="px-6 py-2.5 rounded-lg text-sm font-medium bg-slate-800 text-white hover:bg-slate-700 transition-colors shadow-sm">
+                Connect Wallet
+            </button>
+        </div>
+
+        <!-- Main trading content (hidden until wallet connected) -->
+        <div id="trading-content" class="hidden">
+
+        <!-- Portfolio summary card -->
+        <div id="portfolio-summary"
+            class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-xl border shadow-sm p-4">
+                <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Open Positions</div>
+                <div id="summary-open" class="text-2xl font-bold text-slate-800">0</div>
+            </div>
+            <div class="bg-white rounded-xl border shadow-sm p-4">
+                <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Unrealized P&L</div>
+                <div id="summary-unrealized" class="text-2xl font-bold text-slate-400">$0.00</div>
+            </div>
+            <div class="bg-white rounded-xl border shadow-sm p-4">
+                <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Realized P&L</div>
+                <div id="summary-realized" class="text-2xl font-bold text-slate-400">$0.00</div>
+            </div>
+            <div class="bg-white rounded-xl border shadow-sm p-4">
+                <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Bet Size</div>
+                <div id="summary-bet" class="text-2xl font-bold text-slate-800">$10.00</div>
+            </div>
+        </div>
+
+        <!-- Live positions panel -->
+        <div id="live-positions-panel" class="mb-6 hidden">
+            <div class="bg-white rounded-xl border shadow-sm">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                    <h2 class="text-sm font-semibold text-slate-800">Live Positions</h2>
+                    <span id="live-positions-count" class="text-xs text-slate-400">0 positions</span>
+                </div>
+                <div class="max-h-[40vh] overflow-y-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider sticky top-0">
+                            <tr>
+                                <th class="px-4 py-2 text-left">Market</th>
+                                <th class="px-4 py-2 text-left">Dir</th>
+                                <th class="px-4 py-2 text-right">Entry</th>
+                                <th class="px-4 py-2 text-right">Current</th>
+                                <th class="px-4 py-2 text-right">P&L</th>
+                                <th class="px-4 py-2 text-right">Time Held</th>
+                                <th class="px-4 py-2 text-right">Exit In</th>
+                            </tr>
+                        </thead>
+                        <tbody id="live-positions-body" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -110,15 +179,31 @@
 
         <!-- Positions tab -->
         <div id="tab-positions" class="tab-content">
+            <!-- Filter buttons -->
+            <div class="flex gap-2 mb-3">
+                <button onclick="filterPositions('ALL')" id="filter-all"
+                    class="pos-filter px-3 py-1 text-xs font-medium rounded-lg border transition-colors bg-slate-800 text-white border-slate-800">
+                    All
+                </button>
+                <button onclick="filterPositions('OPEN')" id="filter-open"
+                    class="pos-filter px-3 py-1 text-xs font-medium rounded-lg border transition-colors bg-white text-slate-600 border-slate-200 hover:bg-slate-50">
+                    Open
+                </button>
+                <button onclick="filterPositions('CLOSED')" id="filter-closed"
+                    class="pos-filter px-3 py-1 text-xs font-medium rounded-lg border transition-colors bg-white text-slate-600 border-slate-200 hover:bg-slate-50">
+                    Closed
+                </button>
+            </div>
             <div class="bg-white rounded-xl border shadow-sm max-h-[70vh] overflow-y-auto">
                 <table class="w-full text-sm">
                     <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                         <tr>
                             <th class="px-4 py-3 text-left">Market</th>
+                            <th class="px-4 py-3 text-center">Side</th>
                             <th class="px-4 py-3 text-left">Outcome</th>
                             <th class="px-4 py-3 text-right">Entry</th>
                             <th class="px-4 py-3 text-right">Exit</th>
-                            <th class="px-4 py-3 text-right">P&amp;L</th>
+                            <th class="px-4 py-3 text-right">P&L</th>
                             <th class="px-4 py-3 text-right">Amount</th>
                             <th class="px-4 py-3 text-center">Status</th>
                             <th class="px-4 py-3 text-right">Opened</th>
@@ -126,7 +211,7 @@
                     </thead>
                     <tbody id="positions-body" class="divide-y divide-slate-100">
                         <tr>
-                            <td colspan="8" class="px-4 py-8 text-center text-slate-400">No positions yet</td>
+                            <td colspan="9" class="px-4 py-8 text-center text-slate-400">No positions yet</td>
                         </tr>
                     </tbody>
                 </table>
@@ -158,7 +243,7 @@
 
         <!-- Relationships tab -->
         <div id="tab-relationships" class="tab-content hidden">
-            <div id="relationships-list" class="space-y-3 max-h-[70vh] overflow-y-auto">
+            <div id="relationships-list" class="space-y-3">
                 <p class="text-slate-400 text-sm text-center py-8">No active relationships</p>
             </div>
         </div>
@@ -171,6 +256,8 @@
                 </div>
             </div>
         </div>
+
+        </div><!-- /trading-content -->
 
     </main>
 
@@ -186,6 +273,42 @@
                 <p class="text-slate-400 text-sm text-center py-4">Loading leaders...</p>
             </div>
             <div id="test-result" class="hidden mt-4 p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm"></div>
+        </div>
+    </div>
+
+    <!-- Graph Generation Modal -->
+    <div id="graph-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl w-[560px] max-w-[90vw] p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-slate-900">Generate Relationship Graph</h2>
+                <button onclick="closeGraphModal()" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+            </div>
+            <p class="text-sm text-slate-500 mb-4">Discover leader-follower market relationships using LLM analysis. This scans the top markets by volume and identifies related markets.</p>
+            <div class="flex gap-3 mb-4">
+                <div class="flex-1">
+                    <label class="text-xs text-slate-500 block mb-1">Top N Leaders</label>
+                    <input id="graph-top-n" type="number" value="20" min="5" max="100"
+                        class="w-full px-3 py-2 border rounded-lg text-sm">
+                </div>
+                <div class="flex-1">
+                    <label class="text-xs text-slate-500 block mb-1">Min Volume ($)</label>
+                    <input id="graph-min-vol" type="number" value="50000" min="1000"
+                        class="w-full px-3 py-2 border rounded-lg text-sm">
+                </div>
+            </div>
+            <button id="graph-start-btn" onclick="startGraphGeneration()"
+                class="w-full px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+                Start Generation
+            </button>
+            <div id="graph-progress" class="mt-4 hidden">
+                <div class="flex items-center gap-2 mb-2">
+                    <div class="animate-spin h-4 w-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>
+                    <span id="graph-progress-text" class="text-sm text-slate-600">Starting...</span>
+                </div>
+                <div id="graph-log" class="max-h-[30vh] overflow-y-auto bg-slate-50 rounded-lg p-3 font-mono text-xs space-y-1">
+                </div>
+            </div>
+            <div id="graph-result" class="hidden mt-4 p-3 rounded-lg text-sm"></div>
         </div>
     </div>
 

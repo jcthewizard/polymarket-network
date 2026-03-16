@@ -470,13 +470,23 @@ def generate_full_graph_stream(
     Yields the same event types as find_followers_stream(), plus leader-level progress.
     """
 
-    # 1. Load markets
+    # 1. Load markets (auto-refresh if DB is empty)
     yield {"type": "step", "message": "Loading markets from database"}
     all_markets = db.get_all_markets()
 
     if not all_markets:
-        yield {"type": "error", "message": "No markets in database. Refresh data first."}
-        return
+        yield {"type": "step", "message": "No markets in database — fetching from Polymarket API..."}
+        try:
+            import data_worker
+            data_worker.refresh_data(skip_classify=True)
+        except Exception as exc:
+            yield {"type": "error", "message": f"Failed to refresh market data: {exc}"}
+            return
+        all_markets = db.get_all_markets()
+        if not all_markets:
+            yield {"type": "error", "message": "Still no markets after refresh. Check API connectivity."}
+            return
+        yield {"type": "step", "message": f"Fetched {len(all_markets)} markets"}
 
     # 2. Sort by volume, optionally skip existing leaders
     sorted_markets = sorted(all_markets, key=lambda m: m.get("volume", 0), reverse=True)

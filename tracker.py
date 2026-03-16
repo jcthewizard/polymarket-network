@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
+import config
 import database as db
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -242,9 +243,30 @@ def process_update(
 
         state.resolution_fired = True
         if on_resolution:
-            on_resolution(state, outcome, followers)
+            on_resolution(state, outcome, followers, "resolution")
         else:
             fire_resolution_alert(state, outcome, followers)
+
+    # Price threshold trigger — if leader price >= 98% or <= 2%, infer outcome
+    threshold = config.PRICE_TRIGGER_THRESHOLD
+    if followers and not state.resolution_fired and point.price is not None:
+        if point.price >= threshold or point.price <= (1.0 - threshold):
+            inferred_outcome = "YES" if point.price >= threshold else "NO"
+            leader_market_id = state.condition_id
+            trigger_key = f"{leader_market_id}_price"
+            if db.is_resolution_fired(trigger_key):
+                state.resolution_fired = True
+                return
+            db.mark_resolution_fired(trigger_key, inferred_outcome)
+            state.resolution_fired = True
+            log.info(
+                f"PRICE TRIGGER  {state.label}  price={point.price:.3f}  "
+                f"inferred={inferred_outcome}"
+            )
+            if on_resolution:
+                on_resolution(state, inferred_outcome, followers, "price_threshold")
+            else:
+                fire_resolution_alert(state, inferred_outcome, followers)
 
 # ── Graph loading ───────────────────────────────────────────────────────────────
 

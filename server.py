@@ -22,8 +22,10 @@ from urllib.parse import urlparse, parse_qs
 PORT = 8000
 
 # ── Resolved markets cache (for backtest search) ──────────────
+import threading as _threading
 _resolved_markets_cache = None
 _resolved_markets_cache_time = 0
+_resolved_markets_lock = _threading.Lock()
 RESOLVED_CACHE_TTL = 600  # 10 minutes
 
 
@@ -142,8 +144,13 @@ def _get_resolved_markets_cache():
     now = _time.time()
     if _resolved_markets_cache is not None and (now - _resolved_markets_cache_time) < RESOLVED_CACHE_TTL:
         return _resolved_markets_cache
-    _resolved_markets_cache = _fetch_resolved_markets()
-    _resolved_markets_cache_time = now
+    with _resolved_markets_lock:
+        # Re-check after acquiring lock (another thread may have populated it)
+        now = _time.time()
+        if _resolved_markets_cache is not None and (now - _resolved_markets_cache_time) < RESOLVED_CACHE_TTL:
+            return _resolved_markets_cache
+        _resolved_markets_cache = _fetch_resolved_markets()
+        _resolved_markets_cache_time = now
     return _resolved_markets_cache
 
 # Load .env file if it exists
@@ -185,6 +192,10 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_trading_signals()
         elif self.path == '/api/trading/relationships':
             self.handle_trading_relationships()
+        elif self.path == '/api/trading/leaders':
+            self.handle_trading_leaders()
+        elif self.path == '/api/trading/balance':
+            self.handle_trading_balance()
         elif self.path == '/api/trading/stream':
             self.handle_trading_stream()
         # Legacy proxy endpoints (keep for backward compatibility during transition)
@@ -541,7 +552,7 @@ Respond with ONLY the category name, nothing else."""
     def handle_trading_positions(self):
         """GET /api/trading/positions — recent positions."""
         try:
-            positions = db.get_recent_positions(limit=100)
+            positions = db.get_recent_positions(limit=500)
             self.send_json_response(positions)
         except Exception as e:
             self.send_error_response(500, str(e))
@@ -549,7 +560,7 @@ Respond with ONLY the category name, nothing else."""
     def handle_trading_signals(self):
         """GET /api/trading/signals — recent trade signals."""
         try:
-            signals = db.get_recent_signals(limit=50)
+            signals = db.get_recent_signals(limit=500)
             self.send_json_response(signals)
         except Exception as e:
             self.send_error_response(500, str(e))
@@ -561,6 +572,24 @@ Respond with ONLY the category name, nothing else."""
             self.send_json_response(rels)
         except Exception as e:
             self.send_error_response(500, str(e))
+
+    def handle_trading_leaders(self):
+        """GET /api/trading/leaders — leader name mapping from metadata."""
+        try:
+            import json as _json
+            raw = db.get_metadata("demo_leaders")
+            leaders = _json.loads(raw) if raw else {}
+            self.send_json_response(leaders)
+        except Exception as e:
+            self.send_json_response({})
+
+    def handle_trading_balance(self):
+        """GET /api/trading/balance — Polymarket CLOB balance."""
+        try:
+            result = autotrader.get_wallet_balance()
+            self.send_json_response(result)
+        except Exception as e:
+            self.send_json_response({"balance": -1, "error": str(e)})
 
     def handle_trading_start(self):
         """POST /api/trading/start — start autotrader."""
@@ -872,6 +901,23 @@ if __name__ == '__main__':
             sys.exit(1)
         raise
     with server as httpd:
+        # Pre-fetch resolved markets so first search is instant
+        _threading.Thread(target=_get_resolved_markets_cache, daemon=True).start()
+
+        # Auto-start autotrader if TRADING_ENABLED and graph exists
+        import config as _config
+        if _config.TRADING_ENABLED:
+            rels = db.get_active_relationships()
+            if rels:
+                print(f"[Autotrader] TRADING_ENABLED=true, {len(rels)} relationships found — auto-starting")
+                try:
+                    autotrader.start()
+                except Exception as e:
+                    print(f"[Autotrader] Auto-start failed: {e}")
+            else:
+                print("[Autotrader] TRADING_ENABLED=true but no relationships in DB — skipping auto-start")
+                print("[Autotrader] Generate a relationship graph via the UI first, then restart")
+
         print(f"Serving at http://localhost:{PORT}")
         print(f"REST API available at /api/data, /api/data/status")
         try:

@@ -198,26 +198,32 @@ def align_by_timestamp(history_a: List[Dict], history_b: List[Dict]) -> tuple:
     return prices_a, prices_b
 
 
-def refresh_data():
-    """Main function to refresh all data."""
-    log("Starting data refresh...")
+def refresh_data(skip_classify=False):
+    """Main function to refresh all data.
+
+    Args:
+        skip_classify: If True, skip LLM classification and history fetching.
+                       Used by graph generation which only needs market metadata.
+    """
+    log("Starting data refresh..." + (" (fast mode, skipping classification)" if skip_classify else ""))
     start_time = time.time()
-    
+
     # 1. Cache existing categories so we don't have to re-classify
     category_cache = db.get_all_categories()
     log(f"Cached {len(category_cache)} existing categories")
     question_category_cache = {}
-    for existing_market in db.get_all_markets():
-        existing_category = existing_market.get('category', 'Other')
-        if existing_category and existing_category != 'Other':
-            question_category_cache[normalize_question(existing_market.get('name', ''))] = existing_category
-    
+    if not skip_classify:
+        for existing_market in db.get_all_markets():
+            existing_category = existing_market.get('category', 'Other')
+            if existing_category and existing_category != 'Other':
+                question_category_cache[normalize_question(existing_market.get('name', ''))] = existing_category
+
     # 2. Fetch markets from API
     raw_markets = fetch_markets()
     if not raw_markets:
         log("No markets fetched, aborting refresh.")
         return
-    
+
     # 3. Filter markets by volume and probability (store all >= 10k)
     markets = []
     for m in raw_markets:
@@ -261,32 +267,38 @@ def refresh_data():
     # 5. Classify all markets, but only fetch history for high-volume ones (>= 50k)
     history_map = {}  # market_id -> history
 
-    for i, market in enumerate(markets):
-        # Check if already has category in cache
-        if market['id'] in category_cache:
-            market['category'] = category_cache[market['id']]
-            question_category_cache[normalize_question(market['name'])] = market['category']
-        else:
-            normalized = normalize_question(market['name'])
-            if normalized in question_category_cache:
-                market['category'] = question_category_cache[normalized]
+    if skip_classify:
+        # Fast path: just set category to 'Other', skip LLM and history
+        for market in markets:
+            market['category'] = category_cache.get(market['id'], 'Other')
+        log(f"Fast mode: skipped classification for {len(markets)} markets")
+    else:
+        for i, market in enumerate(markets):
+            # Check if already has category in cache
+            if market['id'] in category_cache:
+                market['category'] = category_cache[market['id']]
+                question_category_cache[normalize_question(market['name'])] = market['category']
             else:
-                # Classify with LLM
-                market['category'] = classify_with_llm(market['name'])
-                question_category_cache[normalized] = market['category']
-                log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
+                normalized = normalize_question(market['name'])
+                if normalized in question_category_cache:
+                    market['category'] = question_category_cache[normalized]
+                else:
+                    # Classify with LLM
+                    market['category'] = classify_with_llm(market['name'])
+                    question_category_cache[normalized] = market['category']
+                    log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
 
-        # Only fetch history for markets above correlation threshold
-        if market['volume'] >= MIN_VOLUME_CORRELATE:
-            history = fetch_market_history(market['clob_token_id'])
-            if history and len(history) >= 10:
-                history_map[market['id']] = history
+            # Only fetch history for markets above correlation threshold
+            if market['volume'] >= MIN_VOLUME_CORRELATE:
+                history = fetch_market_history(market['clob_token_id'])
+                if history and len(history) >= 10:
+                    history_map[market['id']] = history
 
-        if (i + 1) % 50 == 0:
-            log(f"  Processed {i + 1}/{len(markets)} markets...")
+            if (i + 1) % 50 == 0:
+                log(f"  Processed {i + 1}/{len(markets)} markets...")
 
-        # Small delay to avoid rate limiting
-        time.sleep(0.1)
+            # Small delay to avoid rate limiting
+            time.sleep(0.1)
 
     log(f"Stored {len(markets)} markets, {len(history_map)} with history (vol >= ${MIN_VOLUME_CORRELATE:,})")
     

@@ -18,17 +18,24 @@ DRY_RUN = TRADING_MODE != "live"
 TRADING_ENABLED = os.environ.get("TRADING_ENABLED", "false").lower() == "true"
 
 # Trade Sizing
-BET_SIZE_USDC = float(os.environ.get("BET_SIZE_USDC", "1.00"))
+BET_SIZE_USDC = float(os.environ.get("BET_SIZE_USDC", "10.00"))
 
 # Polling Intervals (seconds)
 TRACKER_POLL_INTERVAL = int(os.environ.get("TRACKER_POLL_INTERVAL", "10"))
-POSITION_POLL_INTERVAL = int(os.environ.get("POSITION_POLL_INTERVAL", "5"))
+POSITION_POLL_INTERVAL = int(os.environ.get("POSITION_POLL_INTERVAL", "2"))
 FILL_CHECK_INTERVAL = int(os.environ.get("FILL_CHECK_INTERVAL", "10"))
 
 # Position Management
-POSITION_EXIT_SECONDS = int(os.environ.get("POSITION_EXIT_SECONDS", "180"))
+POSITION_EXIT_SECONDS = int(os.environ.get("POSITION_EXIT_SECONDS", "3600"))
 STALE_ORDER_SECONDS = int(os.environ.get("STALE_ORDER_SECONDS", "60"))
 SELL_DISCOUNT_PCT = float(os.environ.get("SELL_DISCOUNT_PCT", "0.02"))
+
+# Stop-Loss
+STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0.03"))
+STOP_LOSS_SELL_DISCOUNT_PCT = float(os.environ.get("STOP_LOSS_SELL_DISCOUNT_PCT", "0.10"))
+
+# Price Trigger
+PRICE_TRIGGER_THRESHOLD = float(os.environ.get("PRICE_TRIGGER_THRESHOLD", "0.98"))
 
 # API Hosts
 CLOB_HOST = os.environ.get("CLOB_HOST", "https://clob.polymarket.com")
