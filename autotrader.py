@@ -635,6 +635,8 @@ def simulate_resolution(leader_market_id, outcome):
 
     # Run the resolution handler in a temporary event loop
     async def _run_sim():
+        global _trade_semaphore
+        _trade_semaphore = _asyncio.Semaphore(5)
         await _handle_resolution(state, outcome, followers)
 
     _asyncio.run(_run_sim())
