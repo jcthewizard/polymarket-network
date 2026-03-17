@@ -14,6 +14,35 @@
         .live-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
         .pnl-positive { color: #059669; }
         .pnl-negative { color: #dc2626; }
+
+        /* Dual-thumb range slider */
+        .range-slider-container { position: relative; height: 24px; }
+        .range-slider-track {
+            position: absolute; top: 50%; left: 0; right: 0; height: 4px;
+            transform: translateY(-50%); background: #e2e8f0; border-radius: 2px;
+        }
+        .range-slider-fill {
+            position: absolute; top: 50%; height: 4px;
+            transform: translateY(-50%); background: #4f46e5; border-radius: 2px;
+        }
+        .range-slider-thumb {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            -webkit-appearance: none; appearance: none;
+            background: transparent; pointer-events: none; margin: 0;
+        }
+        .range-slider-thumb::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 16px; height: 16px; border-radius: 50%;
+            background: #4f46e5; border: 2px solid #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            cursor: pointer; pointer-events: auto;
+        }
+        .range-slider-thumb::-moz-range-thumb {
+            width: 16px; height: 16px; border-radius: 50%;
+            background: #4f46e5; border: 2px solid #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            cursor: pointer; pointer-events: auto;
+        }
     </style>
 </head>
 
@@ -55,8 +84,9 @@
                 Start
             </button>
             <!-- Generate Graph button -->
-            <button id="graph-btn" onclick="generateGraph()"
-                class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100">
+            <button id="graph-btn" onclick="openGraphOverlay()"
+                class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border shadow-sm bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100 flex items-center gap-1.5">
+                <span id="graph-btn-spinner" class="hidden animate-spin h-3 w-3 border-2 border-indigo-600 border-t-transparent rounded-full"></span>
                 Generate Graph
             </button>
             <!-- Test Resolution button -->
@@ -96,10 +126,16 @@
             </svg>
             <h2 class="text-lg font-semibold text-slate-600 mb-2">Connect your wallet to view trading data</h2>
             <p class="text-sm text-slate-400 mb-6">Positions, signals, and P&L will populate once connected.</p>
-            <button onclick="connectWallet()"
-                class="px-6 py-2.5 rounded-lg text-sm font-medium bg-slate-800 text-white hover:bg-slate-700 transition-colors shadow-sm">
-                Connect Wallet
-            </button>
+            <div class="flex items-center gap-3 mt-2">
+                <button onclick="connectWallet()"
+                    class="px-6 py-2.5 rounded-lg text-sm font-medium bg-slate-800 text-white hover:bg-slate-700 transition-colors shadow-sm">
+                    Connect Wallet
+                </button>
+                <button onclick="unlockTradingUI()"
+                    class="px-6 py-2.5 rounded-lg text-sm font-medium bg-white text-slate-500 hover:text-slate-700 border border-slate-200 hover:border-slate-300 transition-colors shadow-sm">
+                    Skip
+                </button>
+            </div>
         </div>
 
         <!-- Main trading content (hidden until wallet connected) -->
@@ -121,8 +157,14 @@
                 <div id="summary-realized" class="text-2xl font-bold text-slate-400">$0.00</div>
             </div>
             <div class="bg-white rounded-xl border shadow-sm p-4">
-                <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Bet Size</div>
-                <div id="summary-bet" class="text-2xl font-bold text-slate-800">$10.00</div>
+                <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Bet Size <span class="normal-case font-normal">(per trade)</span></div>
+                <div class="flex items-baseline gap-1">
+                    <span class="text-2xl font-bold text-slate-800">$</span>
+                    <input id="summary-bet" type="number" min="0.01" step="0.01" value="10.00"
+                        title="USDC per follower trade"
+                        class="text-2xl font-bold text-slate-800 bg-transparent border-b-2 border-transparent hover:border-slate-300 focus:border-emerald-500 focus:outline-none w-24"
+                        onchange="updateBetSize(this.value)" />
+                </div>
             </div>
         </div>
 
@@ -243,6 +285,29 @@
 
         <!-- Relationships tab -->
         <div id="tab-relationships" class="tab-content hidden">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <span id="rel-selected-count" class="hidden text-xs text-slate-400"></span>
+                    <button id="delete-selected-btn" onclick="deleteSelectedRelationships()"
+                        class="hidden px-3 py-1 text-xs font-medium rounded-lg border bg-red-50 text-red-600 border-red-200 hover:bg-red-100 transition-colors">
+                        Delete Selected
+                    </button>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="rel-edit-btn" onclick="toggleRelEditMode(true)"
+                        class="px-3 py-1 text-xs font-medium rounded-lg border bg-white text-slate-500 border-slate-200 hover:bg-slate-50 transition-colors">
+                        Edit
+                    </button>
+                    <button id="clear-all-rels-btn" onclick="clearAllRelationships()"
+                        class="hidden px-3 py-1 text-xs font-medium rounded-lg border bg-red-50 text-red-600 border-red-200 hover:bg-red-100 transition-colors">
+                        Clear All
+                    </button>
+                    <button id="rel-edit-done-btn" onclick="toggleRelEditMode(false)"
+                        class="hidden px-3 py-1 text-xs font-medium rounded-lg border bg-slate-800 text-white border-slate-800 hover:bg-slate-700 transition-colors">
+                        Done
+                    </button>
+                </div>
+            </div>
             <div id="relationships-list" class="space-y-3">
                 <p class="text-slate-400 text-sm text-center py-8">No active relationships</p>
             </div>
@@ -277,38 +342,158 @@
     </div>
 
     <!-- Graph Generation Modal -->
-    <div id="graph-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center">
-        <div class="bg-white rounded-2xl shadow-2xl w-[560px] max-w-[90vw] p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-slate-900">Generate Relationship Graph</h2>
-                <button onclick="closeGraphModal()" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
-            </div>
-            <p class="text-sm text-slate-500 mb-4">Discover leader-follower market relationships using LLM analysis. This scans the top markets by volume and identifies related markets.</p>
-            <div class="flex gap-3 mb-4">
-                <div class="flex-1">
-                    <label class="text-xs text-slate-500 block mb-1">Top N Leaders</label>
-                    <input id="graph-top-n" type="number" value="20" min="5" max="100"
-                        class="w-full px-3 py-2 border rounded-lg text-sm">
+    <!-- Full-screen Graph Generation Overlay -->
+    <div id="graph-overlay" class="fixed inset-0 z-50 bg-white hidden flex flex-col">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+            <h2 class="text-lg font-bold text-slate-900">Generate Relationship Graph</h2>
+            <button onclick="closeGraphOverlay()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        <!-- Step indicator -->
+        <div class="flex items-center gap-2 px-6 py-3 bg-slate-50 border-b border-slate-200 text-sm">
+            <span id="step-ind-1" class="font-medium text-indigo-600">1. Search Markets</span>
+            <span class="text-slate-300">&rarr;</span>
+            <span id="step-ind-2" class="text-slate-400">2. Select Markets</span>
+            <span class="text-slate-300">&rarr;</span>
+            <span id="step-ind-3" class="text-slate-400">3. Generate</span>
+        </div>
+
+        <!-- Content area -->
+        <div class="flex-1 overflow-y-auto p-6">
+
+            <!-- Step 1: Filter & Search -->
+            <div id="graph-step-1">
+                <p class="text-sm text-slate-500 mb-4">Search for active Polymarket markets to use as leaders for relationship discovery.</p>
+                <div class="flex gap-3 mb-4 flex-wrap items-end">
+                    <div class="w-48">
+                        <label class="text-xs text-slate-500 block mb-1">Min Volume ($)</label>
+                        <input id="graph-min-vol" type="text" value="50,000"
+                            oninput="formatVolumeInput(this)"
+                            class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-500 block mb-1">Resolution Window</label>
+                        <div class="flex gap-1 flex-wrap">
+                            <button onclick="setDatePreset('1m')" id="date-preset-1m"
+                                class="date-preset-btn px-3 py-2 text-sm border rounded-lg text-slate-600 hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                                1 month
+                            </button>
+                            <button onclick="setDatePreset('3m')" id="date-preset-3m"
+                                class="date-preset-btn px-3 py-2 text-sm border rounded-lg text-slate-600 hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                                3 months
+                            </button>
+                            <button onclick="setDatePreset('6m')" id="date-preset-6m"
+                                class="date-preset-btn px-3 py-2 text-sm border rounded-lg text-slate-600 hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                                6 months
+                            </button>
+                            <button onclick="setDatePreset('1y')" id="date-preset-1y"
+                                class="date-preset-btn px-3 py-2 text-sm border rounded-lg text-slate-600 hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                                1 year
+                            </button>
+                            <button onclick="setDatePreset('custom')" id="date-preset-custom"
+                                class="date-preset-btn px-3 py-2 text-sm border rounded-lg text-slate-600 hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                                Custom
+                            </button>
+                        </div>
+                        <div id="date-custom-pickers" class="hidden flex gap-2 mt-2">
+                            <div>
+                                <label class="text-xs text-slate-500 block mb-1">Min Date</label>
+                                <input id="graph-min-date" type="date"
+                                    class="px-3 py-2 border rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-500 block mb-1">Max Date</label>
+                                <input id="graph-max-date" type="date"
+                                    class="px-3 py-2 border rounded-lg text-sm">
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex-1">
-                    <label class="text-xs text-slate-500 block mb-1">Min Volume ($)</label>
-                    <input id="graph-min-vol" type="number" value="50000" min="1000"
-                        class="w-full px-3 py-2 border rounded-lg text-sm">
-                </div>
-            </div>
-            <button id="graph-start-btn" onclick="startGraphGeneration()"
-                class="w-full px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
-                Start Generation
-            </button>
-            <div id="graph-progress" class="mt-4 hidden">
-                <div class="flex items-center gap-2 mb-2">
+                <button id="graph-search-btn" onclick="searchMarkets()"
+                    class="px-6 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+                    Search Markets
+                </button>
+                <div id="graph-search-loading" class="hidden mt-4 flex items-center gap-2">
                     <div class="animate-spin h-4 w-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>
-                    <span id="graph-progress-text" class="text-sm text-slate-600">Starting...</span>
-                </div>
-                <div id="graph-log" class="max-h-[30vh] overflow-y-auto bg-slate-50 rounded-lg p-3 font-mono text-xs space-y-1">
+                    <span class="text-sm text-slate-500">Searching Polymarket...</span>
                 </div>
             </div>
-            <div id="graph-result" class="hidden mt-4 p-3 rounded-lg text-sm"></div>
+
+            <!-- Step 2: Market Table -->
+            <div id="graph-step-2" class="hidden">
+                <div class="flex items-center justify-between mb-4">
+                    <p id="graph-market-count" class="text-sm text-slate-500"></p>
+                    <button onclick="showGraphStep(1)" class="text-sm text-indigo-600 hover:text-indigo-800">&larr; Back to Search</button>
+                </div>
+
+                <!-- Volume range filter -->
+                <div id="vol-filter-section" class="hidden mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Filter by Volume</span>
+                        <span class="text-xs text-slate-400"><span id="vol-label-min">$0</span> — <span id="vol-label-max">$0</span></span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs text-slate-400 whitespace-nowrap" id="vol-range-lo">$0</span>
+                        <div class="range-slider-container flex-1 relative h-6">
+                            <div class="range-slider-track"></div>
+                            <div class="range-slider-fill" id="vol-slider-fill"></div>
+                            <input id="vol-slider-min" type="range" min="0" max="100" value="0"
+                                oninput="onVolumeSliderChange()"
+                                class="range-slider-thumb">
+                            <input id="vol-slider-max" type="range" min="0" max="100" value="100"
+                                oninput="onVolumeSliderChange()"
+                                class="range-slider-thumb">
+                        </div>
+                        <span class="text-xs text-slate-400 whitespace-nowrap" id="vol-range-hi">$0</span>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="bg-slate-50 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                <th class="px-4 py-3">Market</th>
+                                <th class="px-4 py-3 w-32">Volume</th>
+                                <th class="px-4 py-3 w-24">Odds (Yes)</th>
+                                <th class="px-4 py-3 w-36">End Date</th>
+                                <th class="px-4 py-3 w-40">Event Group</th>
+                                <th class="px-4 py-3 w-16"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="graph-market-tbody" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                    <span id="graph-selected-count" class="text-sm font-medium text-slate-700"></span>
+                    <button id="graph-generate-btn" onclick="startGraphFromSelected()"
+                        class="px-6 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+                        Generate Graph
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 3: Generation Progress -->
+            <div id="graph-step-3" class="hidden">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-2">
+                        <div id="graph-spinner" class="animate-spin h-4 w-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>
+                        <span id="graph-progress-text" class="text-sm text-slate-600">Starting generation...</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button onclick="stopGraphGeneration()" id="graph-stop-btn"
+                            class="px-3 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
+                            Stop Generation
+                        </button>
+                        <button onclick="showGraphStep(1)" id="graph-back-btn" class="hidden text-sm text-indigo-600 hover:text-indigo-800">&larr; Back to Search</button>
+                    </div>
+                </div>
+                <div id="graph-log" class="max-h-[60vh] overflow-y-auto bg-slate-50 rounded-lg p-4 font-mono text-xs space-y-1">
+                </div>
+                <div id="graph-result" class="hidden mt-4 p-3 rounded-lg text-sm"></div>
+            </div>
+
         </div>
     </div>
 

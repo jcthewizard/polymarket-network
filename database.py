@@ -188,27 +188,18 @@ def init_db():
 
 
 def upsert_market(market: Dict[str, Any]):
-    """Insert or update a market."""
+    """Insert a market if it doesn't already exist. Never overwrites existing records."""
     conn = get_connection()
     cursor = conn.cursor()
-    
-    # Check if market exists to preserve category if already classified
-    cursor.execute('SELECT category FROM markets WHERE id = ?', (market['id'],))
-    existing = cursor.fetchone()
-    
-    # Keep existing category if new one is 'Other' and existing is not
-    category = market.get('category', 'Other')
-    if existing and existing[0] and existing[0] != 'Other' and category == 'Other':
-        category = existing[0]
-    
+
     cursor.execute('''
-        INSERT OR REPLACE INTO markets (id, name, slug, category, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no, updated_at)
+        INSERT OR IGNORE INTO markets (id, name, slug, category, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         market['id'],
         market['name'],
         market.get('slug', ''),
-        category,
+        market.get('category', 'Other'),
         market.get('volume', 0),
         market.get('probability', 0.5),
         market.get('clob_token_id', ''),
@@ -217,7 +208,7 @@ def upsert_market(market: Dict[str, Any]):
         market.get('clob_token_id_no', ''),
         datetime.now().isoformat()
     ))
-    
+
     conn.commit()
     conn.close()
 
@@ -584,7 +575,7 @@ def insert_relationship(leader_market_id, leader_condition_id, leader_clob_token
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO relationships
+        INSERT OR IGNORE INTO relationships
         (leader_market_id, leader_condition_id, leader_clob_token_id, leader_question,
          follower_market_id, follower_condition_id, follower_clob_token_id_yes,
          follower_clob_token_id_no, follower_question, follower_slug,
@@ -611,6 +602,22 @@ def deactivate_relationships(leader_market_id):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('UPDATE relationships SET active = 0 WHERE leader_market_id = ?', (leader_market_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_relationship_by_leader(leader_market_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM relationships WHERE leader_market_id = ?', (leader_market_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_all_relationships():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM relationships')
     conn.commit()
     conn.close()
 

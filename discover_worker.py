@@ -460,86 +460,92 @@ def generate_full_graph_stream(
     top_n: int = 20,
     min_volume: int = 50000,
     skip_existing: bool = True,
+    leader_markets: Optional[List[Dict]] = None,
 ) -> Generator[Dict, None, None]:
     """
     Generate a full relationship graph by:
-      1. Loading top markets by volume
-      2. Using LLM to identify true leaders (Phase 0)
+      1. Loading top markets by volume (skipped if leader_markets provided)
+      2. Using LLM to identify true leaders (Phase 0, skipped if leader_markets provided)
       3. Running find_followers_stream() for each leader
 
     Yields the same event types as find_followers_stream(), plus leader-level progress.
     """
 
-    # 1. Load markets (auto-refresh if DB is empty)
-    yield {"type": "step", "message": "Loading markets from database"}
-    all_markets = db.get_all_markets()
-
-    if not all_markets:
-        yield {"type": "step", "message": "No markets in database — fetching from Polymarket API..."}
-        try:
-            import data_worker
-            data_worker.refresh_data(skip_classify=True)
-        except Exception as exc:
-            yield {"type": "error", "message": f"Failed to refresh market data: {exc}"}
-            return
+    # If leader_markets provided, skip DB load + Phase 0 and use them directly
+    if leader_markets:
+        leaders = leader_markets
+        yield {"type": "result", "message": f"Using {len(leaders)} user-selected leader markets"}
+    else:
+        # 1. Load markets (auto-refresh if DB is empty)
+        yield {"type": "step", "message": "Loading markets from database"}
         all_markets = db.get_all_markets()
+
         if not all_markets:
-            yield {"type": "error", "message": "Still no markets after refresh. Check API connectivity."}
+            yield {"type": "step", "message": "No markets in database — fetching from Polymarket API..."}
+            try:
+                import data_worker
+                data_worker.refresh_data(skip_classify=True)
+            except Exception as exc:
+                yield {"type": "error", "message": f"Failed to refresh market data: {exc}"}
+                return
+            all_markets = db.get_all_markets()
+            if not all_markets:
+                yield {"type": "error", "message": "Still no markets after refresh. Check API connectivity."}
+                return
+            yield {"type": "step", "message": f"Fetched {len(all_markets)} markets"}
+
+        # 2. Sort by volume, optionally skip existing leaders
+        sorted_markets = sorted(all_markets, key=lambda m: m.get("volume", 0), reverse=True)
+
+        existing_leaders = set()
+        if skip_existing:
+            rels = db.get_active_relationships()
+            existing_leaders = {r["leader_market_id"] for r in rels}
+
+        candidates = [
+            m for m in sorted_markets
+            if m["volume"] >= min_volume and m["id"] not in existing_leaders
+        ][:top_n]
+
+        if not candidates:
+            yield {"type": "result", "message": "No candidate markets to process (all may already have relationships)"}
+            yield {"type": "done", "data": {"leaders_processed": 0, "total_followers": 0}}
             return
-        yield {"type": "step", "message": f"Fetched {len(all_markets)} markets"}
 
-    # 2. Sort by volume, optionally skip existing leaders
-    sorted_markets = sorted(all_markets, key=lambda m: m.get("volume", 0), reverse=True)
+        yield {"type": "result", "message": f"Selected top {len(candidates)} markets by volume (>= ${min_volume:,}){' (skipping existing leaders)' if skip_existing else ''}"}
 
-    existing_leaders = set()
-    if skip_existing:
-        rels = db.get_active_relationships()
-        existing_leaders = {r["leader_market_id"] for r in rels}
+        # 3. Phase 0: Identify true leaders
+        yield {"type": "step", "message": f"Identifying true leaders from {len(candidates)} markets"}
 
-    candidates = [
-        m for m in sorted_markets
-        if m["volume"] >= min_volume and m["id"] not in existing_leaders
-    ][:top_n]
+        retry_events = []
+        def on_retry(attempt, max_retries, wait):
+            retry_events.append({"type": "step", "message": f"Rate limit hit, retrying ({attempt}/{max_retries}) in {wait}s..."})
 
-    if not candidates:
-        yield {"type": "result", "message": "No candidate markets to process (all may already have relationships)"}
-        yield {"type": "done", "data": {"leaders_processed": 0, "total_followers": 0}}
-        return
+        try:
+            leader_indices = _identify_leaders(candidates, openai_api_key, on_retry=on_retry)
+            for evt in retry_events:
+                yield evt
+            retry_events.clear()
+        except Exception as e:
+            for evt in retry_events:
+                yield evt
+            yield {"type": "error", "message": f"Leader identification failed: {str(e)}"}
+            return
 
-    yield {"type": "result", "message": f"Selected top {len(candidates)} markets by volume (>= ${min_volume:,}){' (skipping existing leaders)' if skip_existing else ''}"}
+        # Map indices back to markets (1-based indices from LLM)
+        leaders = []
+        for idx in leader_indices:
+            if isinstance(idx, int) and 1 <= idx <= len(candidates):
+                leaders.append(candidates[idx - 1])
 
-    # 3. Phase 0: Identify true leaders
-    yield {"type": "step", "message": f"Identifying true leaders from {len(candidates)} markets"}
+        if not leaders:
+            yield {"type": "result", "message": "No true leaders identified in the candidate set"}
+            yield {"type": "done", "data": {"leaders_processed": 0, "total_followers": 0}}
+            return
 
-    retry_events = []
-    def on_retry(attempt, max_retries, wait):
-        retry_events.append({"type": "step", "message": f"Rate limit hit, retrying ({attempt}/{max_retries}) in {wait}s..."})
-
-    try:
-        leader_indices = _identify_leaders(candidates, openai_api_key, on_retry=on_retry)
-        for evt in retry_events:
-            yield evt
-        retry_events.clear()
-    except Exception as e:
-        for evt in retry_events:
-            yield evt
-        yield {"type": "error", "message": f"Leader identification failed: {str(e)}"}
-        return
-
-    # Map indices back to markets (1-based indices from LLM)
-    leaders = []
-    for idx in leader_indices:
-        if isinstance(idx, int) and 1 <= idx <= len(candidates):
-            leaders.append(candidates[idx - 1])
-
-    if not leaders:
-        yield {"type": "result", "message": "No true leaders identified in the candidate set"}
-        yield {"type": "done", "data": {"leaders_processed": 0, "total_followers": 0}}
-        return
-
-    leader_names = [l["name"][:50] for l in leaders[:5]]
-    more = f" +{len(leaders) - 5} more" if len(leaders) > 5 else ""
-    yield {"type": "result", "message": f"Found {len(leaders)} true leaders: {', '.join(leader_names)}{more}"}
+        leader_names = [l["name"][:50] for l in leaders[:5]]
+        more = f" +{len(leaders) - 5} more" if len(leaders) > 5 else ""
+        yield {"type": "result", "message": f"Found {len(leaders)} true leaders: {', '.join(leader_names)}{more}"}
 
     # 4. Process each leader
     total_followers = 0

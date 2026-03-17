@@ -78,16 +78,18 @@ class TradingExecutor:
             dry_run:     If True (default), orders are logged but NOT posted.
         """
         self.dry_run = dry_run
-        self._private_key = private_key or os.environ.get("POLY_PRIVATE_KEY", "")
+        raw_key = private_key or os.environ.get("POLY_PRIVATE_KEY", "")
+        self._private_key = raw_key.removeprefix("0x") if raw_key else ""
 
         # Token-id cache:  slug → {"Yes": token_id, "No": token_id}
         self._token_cache: Dict[str, Dict[str, str]] = {}
 
-        if not self._private_key:
-            logger.warning(
-                "No private key provided (POLY_PRIVATE_KEY).  "
-                "The executor will work in dry-run mode only."
-            )
+        if not self._private_key or self.dry_run:
+            if not self._private_key:
+                logger.warning(
+                    "No private key provided (POLY_PRIVATE_KEY).  "
+                    "The executor will work in dry-run mode only."
+                )
             self.client: Optional[ClobClient] = None
             return
 
