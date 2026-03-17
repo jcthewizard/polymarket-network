@@ -28,6 +28,12 @@ _resolved_markets_cache_time = 0
 _resolved_markets_lock = _threading.Lock()
 RESOLVED_CACHE_TTL = 600  # 10 minutes
 
+# ── Active markets cache (for market search) ──────────────
+_active_markets_cache = None
+_active_markets_cache_time = 0
+_active_markets_lock = _threading.Lock()
+ACTIVE_CACHE_TTL = 60  # 1 minute
+
 
 def _pick_resolution_time(market: dict):
     """Return (timestamp_str, source) for best-available resolution time."""
@@ -44,6 +50,38 @@ def _pick_resolution_time(market: dict):
         return end_date, 'endDate'
 
     return '', ''
+
+
+def _fetch_market_prices(market_ids):
+    """Fetch current YES prices for a list of market IDs from Gamma API.
+    Returns a dict mapping market_id -> float price (0-1)."""
+    unique_ids = list(set(mid for mid in market_ids if mid))
+    if not unique_ids:
+        return {}
+    prices = {}
+    # Gamma API supports filtering by id (comma-separated or repeated params)
+    chunk_size = 50
+    for i in range(0, len(unique_ids), chunk_size):
+        chunk = unique_ids[i:i + chunk_size]
+        id_params = '&'.join(f'id={mid}' for mid in chunk)
+        url = f"https://gamma-api.polymarket.com/markets?{id_params}&limit={chunk_size}"
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                markets = json.loads(resp.read().decode('utf-8'))
+                for m in markets:
+                    try:
+                        outcome_prices = json.loads(m.get('outcomePrices', '[]') or '[]')
+                        yes_price = float(outcome_prices[0]) if outcome_prices else None
+                        prices[m['id']] = yes_price
+                    except (ValueError, TypeError, json.JSONDecodeError):
+                        pass
+        except Exception as e:
+            print(f"[prices] fetch error: {e}")
+    return prices
 
 
 def _fetch_resolved_markets():
@@ -153,6 +191,89 @@ def _get_resolved_markets_cache():
         _resolved_markets_cache_time = now
     return _resolved_markets_cache
 
+
+def _fetch_active_markets():
+    """Fetch active markets from Gamma API with pagination."""
+    all_markets = []
+    offset = 0
+    limit = 500
+    max_markets = 5000
+
+    while len(all_markets) < max_markets:
+        url = (
+            f"https://gamma-api.polymarket.com/markets?active=true&closed=false"
+            f"&limit={limit}&offset={offset}"
+            f"&order=volume&ascending=false"
+        )
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                markets = json.loads(response.read().decode('utf-8'))
+                if not markets:
+                    break
+                all_markets.extend(markets)
+                if len(markets) < limit:
+                    break
+                offset += limit
+                import time as _time
+                _time.sleep(0.2)
+        except Exception as e:
+            print(f"Error fetching active markets at offset {offset}: {e}")
+            break
+
+    # Parse into clean format
+    results = []
+    for m in all_markets:
+        try:
+            volume = float(m.get('volume', 0) or 0)
+            clob_ids = json.loads(m.get('clobTokenIds', '[]'))
+            if not clob_ids:
+                continue
+
+            end_date = m.get('endDate', '') or ''
+            condition_id = m.get('conditionId', '') or ''
+
+            outcome_prices = json.loads(m.get('outcomePrices', '[]') or '[]')
+            yes_prob = float(outcome_prices[0]) if outcome_prices else None
+
+            results.append({
+                'id': m['id'],
+                'question': m.get('question', ''),
+                'slug': m.get('slug', ''),
+                'volume': volume,
+                'endDate': end_date,
+                'category': m.get('groupItemTitle', '') or '',
+                'clobTokenIds': clob_ids,
+                'conditionId': condition_id,
+                'probability': yes_prob,
+            })
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+    results.sort(key=lambda x: x.get('volume', 0), reverse=True)
+    print(f"[MarketSearch] Fetched {len(results)} active markets (from {len(all_markets)} total)")
+    return results
+
+
+def _get_active_markets_cache():
+    """Get active markets with caching."""
+    global _active_markets_cache, _active_markets_cache_time
+    import time as _time
+    now = _time.time()
+    if _active_markets_cache is not None and (now - _active_markets_cache_time) < ACTIVE_CACHE_TTL:
+        return _active_markets_cache
+    with _active_markets_lock:
+        now = _time.time()
+        if _active_markets_cache is not None and (now - _active_markets_cache_time) < ACTIVE_CACHE_TTL:
+            return _active_markets_cache
+        _active_markets_cache = _fetch_active_markets()
+        _active_markets_cache_time = now
+    return _active_markets_cache
+
+
 # Load .env file if it exists
 def load_dotenv():
     env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -181,6 +302,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_get_correlations()
         elif self.path == '/api/data/status':
             self.handle_get_status()
+        elif self.path.startswith('/api/markets/search'):
+            self.handle_markets_search()
         elif self.path.startswith('/api/backtest/search'):
             self.handle_backtest_search()
         # Trading endpoints
@@ -480,6 +603,26 @@ Respond with ONLY the category name, nothing else."""
             top_n = int(data.get('top_n', 20))
             min_volume = int(data.get('min_volume', 50000))
             skip_existing = bool(data.get('skip_existing', True))
+            market_list = data.get('market_list', None)
+
+            # If market_list provided, insert any markets not already in DB
+            # so discover worker can find them. upsert_market uses INSERT OR IGNORE
+            # so existing records are never overwritten.
+            if market_list:
+                for m in market_list:
+                    clob_ids = m.get('clobTokenIds', [])
+                    db.upsert_market({
+                        'id': m['id'],
+                        'name': m.get('question', ''),
+                        'slug': m.get('slug', ''),
+                        'category': m.get('category', 'Other'),
+                        'volume': m.get('volume', 0),
+                        'probability': 0.5,
+                        'clob_token_id': clob_ids[0] if clob_ids else '',
+                        'condition_id': m.get('conditionId', ''),
+                        'clob_token_id_yes': clob_ids[0] if len(clob_ids) > 0 else '',
+                        'clob_token_id_no': clob_ids[1] if len(clob_ids) > 1 else '',
+                    })
 
             if not OPENAI_API_KEY:
                 self.send_error_response(500, 'OPENAI_API_KEY not configured')
@@ -494,13 +637,31 @@ Respond with ONLY the category name, nothing else."""
             eq = _queue.Queue()
             _SENTINEL = object()
 
+            # Convert market_list to the format expected by discover_worker
+            leader_markets = None
+            if market_list:
+                leader_markets = []
+                for m in market_list:
+                    clob_ids = m.get('clobTokenIds', [])
+                    leader_markets.append({
+                        'id': m['id'],
+                        'name': m.get('question', ''),
+                        'slug': m.get('slug', ''),
+                        'category': m.get('category', 'Other'),
+                        'volume': m.get('volume', 0),
+                        'probability': 0.5,
+                        'clob_token_id': clob_ids[0] if clob_ids else '',
+                        'condition_id': m.get('conditionId', ''),
+                    })
+
             def _run_worker():
                 try:
                     import discover_worker
                     import importlib
                     importlib.reload(discover_worker)
                     for event in discover_worker.generate_full_graph_stream(
-                        OPENAI_API_KEY, top_n, min_volume, skip_existing
+                        OPENAI_API_KEY, top_n, min_volume, skip_existing,
+                        leader_markets=leader_markets
                     ):
                         eq.put(event)
                 except Exception as exc:
@@ -566,9 +727,14 @@ Respond with ONLY the category name, nothing else."""
             self.send_error_response(500, str(e))
 
     def handle_trading_relationships(self):
-        """GET /api/trading/relationships — active leader-follower pairs."""
+        """GET /api/trading/relationships — active leader-follower pairs with current prices."""
         try:
             rels = db.get_active_relationships()
+            prices = _fetch_market_prices([r['leader_market_id'] for r in rels] +
+                                          [r['follower_market_id'] for r in rels])
+            for r in rels:
+                r['leader_price'] = prices.get(r['leader_market_id'])
+                r['follower_price'] = prices.get(r['follower_market_id'])
             self.send_json_response(rels)
         except Exception as e:
             self.send_error_response(500, str(e))
@@ -682,6 +848,32 @@ Respond with ONLY the category name, nothing else."""
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def handle_markets_search(self):
+        """GET /api/markets/search — search active Polymarket markets with filters."""
+        try:
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            min_volume = float(params.get('min_volume', [0])[0])
+            min_end_date = params.get('min_end_date', [''])[0]
+            max_end_date = params.get('max_end_date', [''])[0]
+
+            all_markets = _get_active_markets_cache()
+
+            filtered = []
+            for m in all_markets:
+                if m['volume'] < min_volume:
+                    continue
+                end_date = m.get('endDate', '') or ''
+                if min_end_date and end_date and end_date < min_end_date:
+                    continue
+                if max_end_date and end_date and end_date > max_end_date:
+                    continue
+                filtered.append(m)
+
+            self.send_json_response(filtered[:500])
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
     def handle_backtest_search(self):
         """Search for resolved markets from Gamma API (cached).
         Supports:
@@ -794,11 +986,37 @@ Respond with ONLY the category name, nothing else."""
             except Exception:
                 pass
 
+    def do_DELETE(self):
+        if self.path == '/api/trading/relationships':
+            self.handle_delete_relationships()
+        else:
+            self.send_error(404, "Not found")
+
+    def handle_delete_relationships(self):
+        """DELETE /api/trading/relationships — remove relationships.
+        Body (optional): {"leader_market_ids": ["id1", ...]}
+        No body or empty list → delete all.
+        """
+        try:
+            ids = []
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                body = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                ids = body.get('leader_market_ids', [])
+            if ids:
+                for lid in ids:
+                    db.delete_relationship_by_leader(lid)
+            else:
+                db.delete_all_relationships()
+            self.send_json_response({"ok": True})
+        except Exception as e:
+            self.send_error_response(500, str(e))
+
     def do_OPTIONS(self):
         """Handle CORS preflight"""
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
