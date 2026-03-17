@@ -447,6 +447,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_trading_stop()
         elif self.path == '/api/trading/test-resolution':
             self.handle_test_resolution()
+        elif self.path == '/api/trading/config':
+            self.handle_trading_config()
         else:
             self.send_error(404, "Not found")
 
@@ -772,6 +774,21 @@ Respond with ONLY the category name, nothing else."""
             self.send_json_response(result)
         except Exception as e:
             self.send_error_response(500, str(e))
+
+    def handle_trading_config(self):
+        """POST /api/trading/config — update runtime config values."""
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            body = json.loads(self.rfile.read(length))
+            if 'bet_size_usdc' in body:
+                val = float(body['bet_size_usdc'])
+                if val < 0.01:
+                    self.send_error_response(400, 'bet_size_usdc must be >= 0.01')
+                    return
+                config.BET_SIZE_USDC = val
+            self.send_json_response({'bet_size': config.BET_SIZE_USDC})
+        except Exception as e:
+            self.send_error_response(400, str(e))
 
     def handle_test_resolution(self):
         """POST /api/trading/test-resolution — simulate a leader resolution.

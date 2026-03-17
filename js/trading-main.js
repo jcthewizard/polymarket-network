@@ -124,7 +124,25 @@ function updatePortfolioSummary(data) {
     if (pnl === 0) realizedEl.className = 'text-2xl font-bold text-slate-400';
 
     const bet = data.bet_size || 10;
-    document.getElementById('summary-bet').textContent = `$${bet.toFixed(2)}`;
+    const betInput = document.getElementById('summary-bet');
+    if (betInput && document.activeElement !== betInput) betInput.value = bet.toFixed(2);
+}
+
+async function updateBetSize(val) {
+    const amount = parseFloat(val);
+    if (isNaN(amount) || amount < 0.01) return;
+    try {
+        const res = await fetch('/api/trading/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bet_size_usdc: amount }),
+        });
+        const data = await res.json();
+        const betInput = document.getElementById('summary-bet');
+        if (betInput) betInput.value = (data.bet_size || amount).toFixed(2);
+    } catch (e) {
+        console.error('Failed to update bet size', e);
+    }
 }
 
 async function refreshPositions() {
