@@ -1,13 +1,15 @@
 """
 Discover Worker: Finds semantically related follower markets for a given leader.
 Uses a two-pass LLM approach:
-  Pass 1 (gpt-5.2): Deep reasoning about which market categories could be causally affected
-  Pass 2 (gpt-5.2): Relationship discovery on category-filtered candidates
+  Pass 1 (gpt-4o-mini): Fast reasoning about which market categories could be causally affected
+  Pass 2 (gpt-5.2):     Relationship discovery on category-filtered candidates (parallel batches)
 Streams progress events so the frontend can show a live log.
 """
 
 import os
 import time
+import queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional, Generator
 
 import database as db
@@ -15,13 +17,19 @@ from llm_utils import call_openai_chat_json
 
 # Configuration
 LLM_MODEL = "gpt-5.2"
+LLM_MODEL_FAST = os.environ.get("LLM_MODEL_FAST", "gpt-4o-mini")
 LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "6"))
-DISCOVER_BATCH_SIZE = int(os.environ.get("DISCOVER_LLM_BATCH_SIZE", "50"))
+DISCOVER_BATCH_SIZE = int(os.environ.get("DISCOVER_LLM_BATCH_SIZE", "100"))
+MAX_PARALLEL_BATCHES = int(os.environ.get("DISCOVER_PARALLEL_BATCHES", "10"))
+MAX_PARALLEL_LEADERS = int(os.environ.get("DISCOVER_PARALLEL_LEADERS", "4"))
+
+# In-memory cache: leader_market_id → {"leader": ..., "followers": [...]}
+_discover_cache: Dict[str, Dict] = {}
 
 
 def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout: int = 180, on_retry=None) -> Dict:
     """Make an OpenAI chat completion call and return parsed JSON response.
-    Retries with exponential backoff on transient errors/rate limits.
+    Uses high reasoning effort. For heavy reasoning tasks (leader identification, etc.).
     on_retry(attempt, max_retries, wait_seconds) is called before each retry."""
     return call_openai_chat_json(
         messages=messages,
@@ -30,6 +38,23 @@ def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout:
         timeout=timeout,
         payload_overrides={
             "reasoning_effort": "high",
+            "response_format": {"type": "json_object"},
+        },
+        max_retries=LLM_MAX_RETRIES,
+        on_retry=on_retry,
+    )
+
+
+def _call_openai_fast(messages: List[Dict], model: str, openai_api_key: str, timeout: int = 180, on_retry=None) -> Dict:
+    """Make an OpenAI chat completion call with medium reasoning effort.
+    Faster than _call_openai — used for batch relationship discovery."""
+    return call_openai_chat_json(
+        messages=messages,
+        model=model,
+        openai_api_key=openai_api_key,
+        timeout=timeout,
+        payload_overrides={
+            "reasoning_effort": "medium",
             "response_format": {"type": "json_object"},
         },
         max_retries=LLM_MAX_RETRIES,
@@ -95,7 +120,17 @@ Return JSON: {{"categories": [...], "reasoning": "..."}}"""
         }
     ]
 
-    data = _call_openai(messages, LLM_MODEL, openai_api_key, timeout=120, on_retry=on_retry)
+    data = call_openai_chat_json(
+        messages=messages,
+        model=LLM_MODEL_FAST,
+        openai_api_key=openai_api_key,
+        timeout=60,
+        payload_overrides={
+            "response_format": {"type": "json_object"},
+        },
+        max_retries=LLM_MAX_RETRIES,
+        on_retry=on_retry,
+    )
 
     # Validate: only keep categories that actually exist in our list
     returned_categories = data.get("categories", [])
@@ -158,7 +193,7 @@ Return JSON:
         }
     ]
 
-    data = _call_openai(messages, LLM_MODEL, openai_api_key, timeout=120, on_retry=on_retry)
+    data = _call_openai_fast(messages, LLM_MODEL, openai_api_key, timeout=120, on_retry=on_retry)
 
     # Resolve indices to question text so callers can do direct lookups
     resolved = []
@@ -217,6 +252,14 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
       {"type": "error",  "message": "..."}                     — error occurred
       {"type": "done",   "data": {leader, followers}}          — final result
     """
+
+    # 0. Check cache first
+    cached = _discover_cache.get(leader_market_id)
+    if cached:
+        yield {"type": "step", "message": "Loading cached results"}
+        yield {"type": "result", "message": f"Returning {len(cached['followers'])} cached followers (hit cache)"}
+        yield {"type": "done", "data": cached}
+        return
 
     # 1. Load markets from database
     yield {"type": "step", "message": "Loading markets from database"}
@@ -306,7 +349,7 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
     else:
         yield {"type": "result", "message": f"{len(candidates)} → {len(filtered_candidates)} candidates after category filter", "data": {"count": len(filtered_candidates)}}
 
-    # 6. Pass 2: Batched relationship discovery
+    # 6. Pass 2: Parallel batched relationship discovery
     BATCH_SIZE = max(10, DISCOVER_BATCH_SIZE)
     candidate_map = {m["name"]: m for m in filtered_candidates}
     all_candidate_questions = [m["name"] for m in filtered_candidates]
@@ -317,31 +360,64 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
         for i in range(0, len(all_candidate_questions), BATCH_SIZE)
     ]
     total_batches = len(batches)
+    parallel = min(MAX_PARALLEL_BATCHES, total_batches)
 
-    yield {"type": "step", "message": f"Pass 2: Discovering relationships across {total_batches} batch{'es' if total_batches > 1 else ''} ({len(all_candidate_questions)} candidates)"}
+    yield {"type": "step", "message": f"Pass 2: Discovering relationships across {total_batches} batch{'es' if total_batches > 1 else ''} ({len(all_candidate_questions)} candidates, {parallel} parallel)"}
 
+    # Run batches in parallel using ThreadPoolExecutor
     raw_followers = []
-    for batch_idx, batch in enumerate(batches):
+    event_queue = queue.Queue()
+
+    def _process_batch(batch_idx, batch):
+        """Process a single batch in a worker thread. Pushes events to the queue."""
         batch_num = batch_idx + 1
+        event_queue.put({"type": "step", "message": f"Batch {batch_num}/{total_batches}: Analyzing {len(batch)} candidates"})
 
-        yield {"type": "step", "message": f"Batch {batch_num}/{total_batches}: Analyzing {len(batch)} candidates"}
+        thread_retry_events = []
+        def thread_on_retry(attempt, max_retries, wait):
+            thread_retry_events.append({"type": "step", "message": f"Batch {batch_num} rate limit, retrying ({attempt}/{max_retries}) in {wait}s..."})
 
-        retry_events.clear()
         try:
-            batch_results = _discover_relationships(leader["name"], batch, openai_api_key, on_retry=on_retry)
-            for evt in retry_events:
-                yield evt
-            retry_events.clear()
-            raw_followers.extend(batch_results)
-            yield {"type": "result", "message": f"Batch {batch_num}/{total_batches}: found {len(batch_results)} followers"}
+            batch_results = _discover_relationships(leader["name"], batch, openai_api_key, on_retry=thread_on_retry)
+            for evt in thread_retry_events:
+                event_queue.put(evt)
+            event_queue.put({"type": "result", "message": f"Batch {batch_num}/{total_batches}: found {len(batch_results)} followers"})
+            return batch_results
         except Exception as e:
-            for evt in retry_events:
-                yield evt
-            retry_events.clear()
-            yield {"type": "result", "message": f"Batch {batch_num}/{total_batches}: skipped ({str(e)[:80]})"}
+            for evt in thread_retry_events:
+                event_queue.put(evt)
+            event_queue.put({"type": "result", "message": f"Batch {batch_num}/{total_batches}: skipped ({str(e)[:80]})"})
+            return []
 
-        if batch_idx < total_batches - 1:
-            time.sleep(0.15)
+    with ThreadPoolExecutor(max_workers=parallel) as executor:
+        futures = [
+            executor.submit(_process_batch, idx, batch)
+            for idx, batch in enumerate(batches)
+        ]
+
+        # Poll: drain event queue continuously while waiting for futures
+        while not all(f.done() for f in futures):
+            while not event_queue.empty():
+                try:
+                    yield event_queue.get_nowait()
+                except queue.Empty:
+                    break
+            time.sleep(0.3)
+
+        # Collect results from all completed futures
+        for f in futures:
+            try:
+                batch_results = f.result()
+                raw_followers.extend(batch_results)
+            except Exception:
+                pass
+
+    # Drain remaining events
+    while not event_queue.empty():
+        try:
+            yield event_queue.get_nowait()
+        except queue.Empty:
+            break
 
     if not raw_followers:
         yield {"type": "result", "message": f"No potential followers identified across {total_batches} batches"}
@@ -395,13 +471,16 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
         except Exception as e:
             yield {"type": "step", "message": f"Warning: could not save relationships to DB: {e}"}
 
-    # 8. Done
+    # 8. Cache results and done
+    result_data = {
+        "leader": leader_info,
+        "followers": followers,
+    }
+    _discover_cache[leader_market_id] = result_data
+
     yield {
         "type": "done",
-        "data": {
-            "leader": leader_info,
-            "followers": followers,
-        }
+        "data": result_data,
     }
 
 
@@ -541,27 +620,56 @@ def generate_full_graph_stream(
     more = f" +{len(leaders) - 5} more" if len(leaders) > 5 else ""
     yield {"type": "result", "message": f"Found {len(leaders)} true leaders: {', '.join(leader_names)}{more}"}
 
-    # 4. Process each leader
+    # 4. Process leaders in parallel
     total_followers = 0
+    parallel_leaders = min(MAX_PARALLEL_LEADERS, len(leaders))
+    leader_event_queue = queue.Queue()
 
-    for i, leader in enumerate(leaders):
-        leader_num = i + 1
-        leader_label = leader["name"][:50]
-        yield {"type": "step", "message": f"[{leader_num}/{len(leaders)}] {leader_label}"}
+    def _process_leader(leader_idx, leader_market):
+        """Process a single leader in a worker thread. Pushes events to the queue."""
+        leader_num = leader_idx + 1
+        leader_label = leader_market["name"][:50]
+        leader_event_queue.put({"type": "step", "message": f"[{leader_num}/{len(leaders)}] {leader_label}"})
 
         follower_count = 0
-        for event in find_followers_stream(leader["id"], openai_api_key, min_volume):
+        for event in find_followers_stream(leader_market["id"], openai_api_key, min_volume):
             if event["type"] == "done":
-                # Extract follower count from done event
                 done_data = event.get("data", {})
                 follower_count = len(done_data.get("followers", []))
-                # Don't re-yield the inner "done" — we yield our own at the end
                 continue
-            # Re-yield sub-events (step, result, error) as-is
-            yield event
+            leader_event_queue.put(event)
 
-        total_followers += follower_count
-        yield {"type": "result", "message": f"[{leader_num}/{len(leaders)}] {leader_label}: {follower_count} followers"}
+        leader_event_queue.put({"type": "result", "message": f"[{leader_num}/{len(leaders)}] {leader_label}: {follower_count} followers"})
+        return follower_count
+
+    with ThreadPoolExecutor(max_workers=parallel_leaders) as executor:
+        futures = [
+            executor.submit(_process_leader, i, leader)
+            for i, leader in enumerate(leaders)
+        ]
+
+        # Poll: drain event queue continuously while waiting for futures
+        while not all(f.done() for f in futures):
+            while not leader_event_queue.empty():
+                try:
+                    yield leader_event_queue.get_nowait()
+                except queue.Empty:
+                    break
+            time.sleep(0.3)
+
+        # Collect results from all completed futures
+        for f in futures:
+            try:
+                total_followers += f.result()
+            except Exception:
+                pass
+
+    # Drain remaining events
+    while not leader_event_queue.empty():
+        try:
+            yield leader_event_queue.get_nowait()
+        except queue.Empty:
+            break
 
     # 5. Final summary
     yield {

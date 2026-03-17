@@ -234,8 +234,8 @@ def call_openai_chat_json(
 
 
 OPENAI_RATE_LIMITER = TokenBucketRateLimiter(
-    tokens_per_second=float(os.environ.get("OPENAI_REQS_PER_SEC", "1.2")),
-    burst_size=float(os.environ.get("OPENAI_BURST_SIZE", "3")),
+    tokens_per_second=float(os.environ.get("OPENAI_REQS_PER_SEC", "8.0")),
+    burst_size=float(os.environ.get("OPENAI_BURST_SIZE", "12")),
 )
 
 CLOB_RATE_LIMITER = TokenBucketRateLimiter(
