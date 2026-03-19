@@ -217,19 +217,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // === Filter Panel Minimize/Maximize ===
+    // === Filter Panel Collapse/Expand ===
     const filterPanel = document.getElementById('filter-panel');
     const filterToggleBtn = document.getElementById('filter-toggle-btn');
     const minimizeBtn = document.getElementById('minimize-filter-btn');
+    const filterContent = document.getElementById('filter-content');
+    const filterChevron = document.getElementById('filter-chevron');
 
     // Check if we're on mobile
     const isMobile = () => window.innerWidth < 768;
 
     minimizeBtn.addEventListener('click', () => {
-        filterPanel.classList.add('hidden');
-        filterPanel.classList.remove('block');
-        if (isMobile()) {
-            filterToggleBtn.classList.remove('hidden');
+        const isCollapsed = filterContent.classList.contains('hidden');
+        if (isCollapsed) {
+            filterContent.classList.remove('hidden');
+            filterChevron.style.transform = 'rotate(0deg)';
+            minimizeBtn.title = 'Collapse';
+        } else {
+            filterContent.classList.add('hidden');
+            filterChevron.style.transform = 'rotate(180deg)';
+            minimizeBtn.title = 'Expand';
         }
     });
 
@@ -237,6 +244,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         filterToggleBtn.classList.add('hidden');
         filterPanel.classList.remove('hidden');
         filterPanel.classList.add('block');
+        filterContent.classList.remove('hidden');
+        filterChevron.style.transform = 'rotate(0deg)';
     });
 
     // === Help Modal ===

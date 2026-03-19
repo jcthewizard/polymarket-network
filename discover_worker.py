@@ -38,9 +38,22 @@ def _call_openai(messages: List[Dict], model: str, openai_api_key: str, timeout:
 
 
 def _get_active_categories(candidates: List[Dict]) -> List[str]:
-    """Get the distinct categories that actually exist among candidate markets."""
+    """Get the distinct tags/categories that actually exist among candidate markets."""
+    import json as _json
     categories = set()
     for m in candidates:
+        tags_raw = m.get("tags", "[]")
+        if isinstance(tags_raw, str):
+            try:
+                tags = _json.loads(tags_raw)
+            except Exception:
+                tags = []
+        else:
+            tags = tags_raw or []
+        for tag in tags:
+            if tag:
+                categories.add(tag)
+        # Also include primary category as fallback
         cat = m.get("category", "Other")
         if cat:
             categories.add(cat)
@@ -280,10 +293,23 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
         yield {"type": "error", "message": f"Pass 1 failed: {str(e)}"}
         return
 
-    # Always include leader's own category
+    # Always include leader's own category and tags
+    import json as _json
     leader_category = leader.get("category", "")
     if leader_category and leader_category not in relevant_categories:
         relevant_categories.append(leader_category)
+
+    leader_tags_raw = leader.get("tags", "[]")
+    if isinstance(leader_tags_raw, str):
+        try:
+            leader_tags = _json.loads(leader_tags_raw)
+        except Exception:
+            leader_tags = []
+    else:
+        leader_tags = leader_tags_raw or []
+    for tag in leader_tags:
+        if tag and tag not in relevant_categories:
+            relevant_categories.append(tag)
 
     yield {
         "type": "result",
@@ -295,9 +321,19 @@ def find_followers_stream(leader_market_id: str, openai_api_key: str, min_volume
     yield {"type": "step", "message": "Filtering candidates by relevant categories"}
 
     relevant_set = set(relevant_categories)
+
+    def _market_tags(m):
+        tags_raw = m.get("tags", "[]")
+        if isinstance(tags_raw, str):
+            try:
+                return set(_json.loads(tags_raw))
+            except Exception:
+                return set()
+        return set(tags_raw or [])
+
     filtered_candidates = [
         m for m in candidates
-        if m.get("category", "Other") in relevant_set
+        if _market_tags(m) & relevant_set or m.get("category", "Other") in relevant_set
     ]
 
     if not filtered_candidates:
@@ -484,7 +520,7 @@ def generate_full_graph_stream(
             yield {"type": "step", "message": "No markets in database — fetching from Polymarket API..."}
             try:
                 import data_worker
-                data_worker.refresh_data(skip_classify=True)
+                data_worker.refresh_data()
             except Exception as exc:
                 yield {"type": "error", "message": f"Failed to refresh market data: {exc}"}
                 return

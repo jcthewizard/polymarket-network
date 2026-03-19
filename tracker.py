@@ -372,7 +372,7 @@ def load_from_db() -> tuple[dict[str, MarketState], dict[str, list[dict]]]:
 
 # ── Main polling loop ───────────────────────────────────────────────────────────
 
-async def run_tracker(on_resolution=None, stop_event=None, interval=10, per_market_delay=0.2):
+async def run_tracker(on_resolution=None, stop_event=None, interval=10, per_market_delay=0.2, session=None):
     all_markets, leaders_map = load_from_db()
 
     n_leaders   = len(leaders_map)
@@ -386,7 +386,7 @@ async def run_tracker(on_resolution=None, stop_event=None, interval=10, per_mark
     # Build ordered list — leaders first so resolutions are detected faster
     market_ids = list(leaders_map.keys()) + [cid for cid in all_markets if cid not in leaders_map]
 
-    async with aiohttp.ClientSession() as session:
+    async def _poll(s):
         while not (stop_event and stop_event.is_set()):
             for cid in market_ids:
                 if stop_event and stop_event.is_set():
@@ -394,13 +394,19 @@ async def run_tracker(on_resolution=None, stop_event=None, interval=10, per_mark
 
                 state = all_markets[cid]
                 try:
-                    raw = await fetch_market_data(session, state.condition_id, state.clob_token_id)
+                    raw = await fetch_market_data(s, state.condition_id, state.clob_token_id)
                     followers = leaders_map.get(cid)
                     process_update(state, raw, followers, on_resolution=on_resolution)
                 except Exception as exc:
                     log.warning(f"Exception for {cid}: {exc}")
 
                 await asyncio.sleep(per_market_delay)
+
+    if session is not None:
+        await _poll(session)
+    else:
+        async with aiohttp.ClientSession() as own_session:
+            await _poll(own_session)
 
 # ── Entrypoint ──────────────────────────────────────────────────────────────────
 
