@@ -239,12 +239,12 @@ OPENAI_RATE_LIMITER = TokenBucketRateLimiter(
 )
 
 CLOB_RATE_LIMITER = TokenBucketRateLimiter(
-    tokens_per_second=float(os.environ.get("CLOB_REQS_PER_SEC", "2.0")),
-    burst_size=float(os.environ.get("CLOB_BURST_SIZE", "4")),
+    tokens_per_second=float(os.environ.get("CLOB_REQS_PER_SEC", "80.0")),
+    burst_size=float(os.environ.get("CLOB_BURST_SIZE", "100")),
 )
 
 GAMMA_RATE_LIMITER = TokenBucketRateLimiter(
-    tokens_per_second=float(os.environ.get("GAMMA_REQS_PER_SEC", "2.0")),
-    burst_size=float(os.environ.get("GAMMA_BURST_SIZE", "4")),
+    tokens_per_second=float(os.environ.get("GAMMA_REQS_PER_SEC", "40.0")),
+    burst_size=float(os.environ.get("GAMMA_BURST_SIZE", "50")),
 )
 

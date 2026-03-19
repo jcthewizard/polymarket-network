@@ -8,6 +8,7 @@ import os
 import json
 import time
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -15,7 +16,6 @@ import database as db
 from llm_utils import (
     CLOB_RATE_LIMITER,
     GAMMA_RATE_LIMITER,
-    call_openai_chat_text,
     fetch_json_with_retries,
 )
 
@@ -33,7 +33,8 @@ def load_dotenv():
 load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-CATEGORIES = ["Politics", "Sports", "Finance", "Crypto", "Geopolitics", "Earnings", "Tech", "Culture", "World", "Economy", "Elections", "Mentions"]
+
+NOISE_TAGS = {"Featured", "New", "Trending"}
 
 # Configuration
 REFRESH_INTERVAL_SECONDS = int(os.environ.get("REFRESH_INTERVAL", 600))  # 10 minutes default
@@ -79,7 +80,6 @@ def fetch_markets() -> List[Dict]:
                 break  # Last page
 
             offset += limit
-            time.sleep(0.1)
         except Exception as e:
             log(f"Error fetching markets at offset {offset}: {e}")
             break
@@ -105,37 +105,49 @@ def fetch_market_history(clob_token_id: str) -> Optional[List[Dict]]:
         return None
 
 
-def classify_with_llm(question: str) -> str:
-    """Classify a market question using OpenAI gpt-4o-mini."""
-    if not OPENAI_API_KEY:
-        return "Other"
+def fetch_events_tags() -> Dict[str, List[str]]:
+    """Fetch tags for all active markets from the Polymarket events API.
+    Returns a dict mapping market_id -> list of tag labels."""
+    market_tags: Dict[str, List[str]] = {}
+    offset = 0
+    limit = 500
 
-    prompt = f"""Classify this prediction market question into exactly one of these categories:
-{', '.join(CATEGORIES)}
+    while True:
+        url = f"https://gamma-api.polymarket.com/events?active=true&closed=false&limit={limit}&offset={offset}"
+        try:
+            events = fetch_json_with_retries(
+                url,
+                timeout=30,
+                rate_limiter=GAMMA_RATE_LIMITER,
+                max_retries=5,
+            )
+            if not events:
+                break
 
-Market question: "{question}"
+            for event in events:
+                tags = [t['label'] for t in event.get('tags', []) if t.get('label')]
+                for market in event.get('markets', []):
+                    mid = market.get('id')
+                    if mid:
+                        market_tags[mid] = tags
 
-Respond with ONLY the category name, nothing else."""
+            if len(events) < limit:
+                break
+
+            offset += limit
+        except Exception as e:
+            log(f"Error fetching events at offset {offset}: {e}")
+            break
+
+    log(f"Fetched tags for {len(market_tags)} markets from events API")
+    return market_tags
 
 
-    try:
-        category = call_openai_chat_text(
-            messages=[{"role": "user", "content": prompt}],
-            model="gpt-4o-mini",
-            openai_api_key=OPENAI_API_KEY,
-            timeout=45,
-            payload_overrides={
-                "max_tokens": 20,
-                "temperature": 0,
-            },
-            max_retries=6,
-        )
-
-        if category in CATEGORIES:
-            return category
-    except Exception as e:
-        log(f"LLM classification error: {e}")
-
+def pick_primary_tag(tags: List[str]) -> str:
+    """Return the first non-noise tag, or 'Other'."""
+    for tag in tags:
+        if tag not in NOISE_TAGS:
+            return tag
     return "Other"
 
 
@@ -198,31 +210,19 @@ def align_by_timestamp(history_a: List[Dict], history_b: List[Dict]) -> tuple:
     return prices_a, prices_b
 
 
-def refresh_data(skip_classify=False):
-    """Main function to refresh all data.
-
-    Args:
-        skip_classify: If True, skip LLM classification and history fetching.
-                       Used by graph generation which only needs market metadata.
-    """
-    log("Starting data refresh..." + (" (fast mode, skipping classification)" if skip_classify else ""))
+def refresh_data():
+    """Main function to refresh all data."""
+    log("Starting data refresh...")
     start_time = time.time()
 
-    # 1. Cache existing categories so we don't have to re-classify
-    category_cache = db.get_all_categories()
-    log(f"Cached {len(category_cache)} existing categories")
-    question_category_cache = {}
-    if not skip_classify:
-        for existing_market in db.get_all_markets():
-            existing_category = existing_market.get('category', 'Other')
-            if existing_category and existing_category != 'Other':
-                question_category_cache[normalize_question(existing_market.get('name', ''))] = existing_category
-
-    # 2. Fetch markets from API
+    # 1. Fetch markets from API
     raw_markets = fetch_markets()
     if not raw_markets:
         log("No markets fetched, aborting refresh.")
         return
+
+    # 2. Fetch tags from events API
+    events_tags = fetch_events_tags()
 
     # 3. Filter markets by volume and probability (store all >= 10k)
     markets = []
@@ -264,41 +264,30 @@ def refresh_data(skip_classify=False):
 
     log(f"Filtered to {len(markets)} markets with volume >= ${MIN_VOLUME_STORE:,} and 5% < prob < 95%")
 
-    # 5. Classify all markets, but only fetch history for high-volume ones (>= 50k)
+    # 4. Assign tags/category
+    correlate_markets = []
+    for market in markets:
+        tags = events_tags.get(market['id'], [])
+        market['tags'] = tags
+        market['category'] = pick_primary_tag(tags)
+        if market['volume'] >= MIN_VOLUME_CORRELATE:
+            correlate_markets.append(market)
+
+    # 5. Fetch history in parallel for high-volume markets
     history_map = {}  # market_id -> history
 
-    if skip_classify:
-        # Fast path: just set category to 'Other', skip LLM and history
-        for market in markets:
-            market['category'] = category_cache.get(market['id'], 'Other')
-        log(f"Fast mode: skipped classification for {len(markets)} markets")
-    else:
-        for i, market in enumerate(markets):
-            # Check if already has category in cache
-            if market['id'] in category_cache:
-                market['category'] = category_cache[market['id']]
-                question_category_cache[normalize_question(market['name'])] = market['category']
-            else:
-                normalized = normalize_question(market['name'])
-                if normalized in question_category_cache:
-                    market['category'] = question_category_cache[normalized]
-                else:
-                    # Classify with LLM
-                    market['category'] = classify_with_llm(market['name'])
-                    question_category_cache[normalized] = market['category']
-                    log(f"  Classified '{market['name'][:50]}...' as {market['category']}")
+    def _fetch(market):
+        history = fetch_market_history(market['clob_token_id'])
+        return market['id'], history
 
-            # Only fetch history for markets above correlation threshold
-            if market['volume'] >= MIN_VOLUME_CORRELATE:
-                history = fetch_market_history(market['clob_token_id'])
-                if history and len(history) >= 10:
-                    history_map[market['id']] = history
-
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(_fetch, m): m for m in correlate_markets}
+        for i, future in enumerate(as_completed(futures)):
+            market_id, history = future.result()
+            if history and len(history) >= 10:
+                history_map[market_id] = history
             if (i + 1) % 50 == 0:
-                log(f"  Processed {i + 1}/{len(markets)} markets...")
-
-            # Small delay to avoid rate limiting
-            time.sleep(0.1)
+                log(f"  Fetched history {i + 1}/{len(correlate_markets)}...")
 
     log(f"Stored {len(markets)} markets, {len(history_map)} with history (vol >= ${MIN_VOLUME_CORRELATE:,})")
     

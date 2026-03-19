@@ -507,6 +507,7 @@ async def _run(stop_event):
                     on_resolution=_on_resolution,
                     stop_event=stop_event,
                     interval=config.TRACKER_POLL_INTERVAL,
+                    session=session,
                 )),
                 asyncio.create_task(_fill_detection_loop(stop_event)),
                 asyncio.create_task(_position_exit_loop(stop_event)),

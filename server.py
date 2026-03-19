@@ -15,7 +15,6 @@ import threading
 from datetime import datetime
 
 import database as db
-from llm_utils import call_openai_chat_text
 import autotrader
 from urllib.parse import urlparse, parse_qs
 
@@ -288,7 +287,6 @@ def load_dotenv():
 load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-CATEGORIES = ["Politics", "Sports", "Finance", "Crypto", "Geopolitics", "Earnings", "Tech", "Culture", "World", "Economy", "Elections", "Mentions"]
 
 
 class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -431,9 +429,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps({'error': message}).encode('utf-8'))
 
     def do_POST(self):
-        if self.path == '/api/classify':
-            self.handle_classify()
-        elif self.path == '/api/refresh':
+        if self.path == '/api/refresh':
             self.handle_manual_refresh()
         elif self.path == '/api/discover':
             self.handle_discover()
@@ -451,58 +447,6 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_trading_config()
         else:
             self.send_error(404, "Not found")
-
-    def handle_classify(self):
-        """Classify a market into a category using OpenAI gpt-4o-mini"""
-        try:
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            question = data.get('question', '')
-            if not question:
-                self.send_error_response(400, 'question is required')
-                return
-            if not OPENAI_API_KEY:
-                self.send_error_response(500, 'OPENAI_API_KEY not configured')
-                return
-            
-            # Call OpenAI API
-            prompt = f"""Classify this prediction market question into exactly one of these categories:
-{', '.join(CATEGORIES)}
-
-Market question: "{question}"
-
-Respond with ONLY the category name, nothing else."""
-
-            category = call_openai_chat_text(
-                messages=[{"role": "user", "content": prompt}],
-                model="gpt-4o-mini",
-                openai_api_key=OPENAI_API_KEY,
-                timeout=45,
-                payload_overrides={
-                    "max_tokens": 20,
-                    "temperature": 0,
-                },
-                max_retries=6,
-            )
-
-            # Validate category is in our list
-            if category not in CATEGORIES:
-                category = "Other"
-
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps({"category": category}).encode('utf-8'))
-                
-        except Exception as e:
-            print(f"Classification error: {e}")
-            self.send_response(500)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e), "category": "Other"}).encode('utf-8'))
 
     def handle_manual_refresh(self):
         """Trigger a manual data refresh."""

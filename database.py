@@ -93,6 +93,12 @@ def init_db():
         )
     ''')
     
+    # Add tags column if it doesn't exist (idempotent migration)
+    try:
+        cursor.execute("ALTER TABLE markets ADD COLUMN tags TEXT DEFAULT '[]'")
+    except Exception:
+        pass  # Column already exists
+
     # Create indexes for faster queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_history_market ON price_history(market_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_correlations_source ON correlations(source_id)')
@@ -193,13 +199,14 @@ def upsert_market(market: Dict[str, Any]):
     cursor = conn.cursor()
 
     cursor.execute('''
-        INSERT OR IGNORE INTO markets (id, name, slug, category, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO markets (id, name, slug, category, tags, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         market['id'],
         market['name'],
         market.get('slug', ''),
         market.get('category', 'Other'),
+        json.dumps(market.get('tags', [])),
         market.get('volume', 0),
         market.get('probability', 0.5),
         market.get('clob_token_id', ''),
@@ -279,13 +286,14 @@ def atomic_replace_all_data(markets: List[Dict], histories: Dict[str, List], cor
         # 2. Insert all markets
         for market in markets:
             cursor.execute('''
-                INSERT OR REPLACE INTO markets (id, name, slug, category, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO markets (id, name, slug, category, tags, volume, probability, clob_token_id, condition_id, clob_token_id_yes, clob_token_id_no)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 market['id'],
                 market['name'],
                 market.get('slug', ''),
                 market['category'],
+                json.dumps(market.get('tags', [])),
                 market['volume'],
                 market['probability'],
                 market['clob_token_id'],

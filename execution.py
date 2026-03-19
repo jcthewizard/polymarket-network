@@ -25,6 +25,7 @@ from typing import Optional, Dict, Any, Tuple
 
 import requests as _requests
 
+import config
 import database as db
 from dotenv import load_dotenv
 from py_clob_client.client import ClobClient
@@ -39,7 +40,7 @@ load_dotenv()
 HOST = "https://clob.polymarket.com"
 GAMMA_API = "https://gamma-api.polymarket.com"
 CHAIN_ID = 137                        # Polygon Mainnet
-MAX_SPEND_USDC = 5.00                 # Hard safety cap per trade (USD)
+MAX_SPEND_USDC = config.BET_SIZE_USDC  # Hard safety cap per trade (USD)
 
 # Base risk parameters
 BASE_TP_PCT = 0.05                    # +5 %
